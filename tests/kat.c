@@ -3,6 +3,7 @@
 #include "interlock_internal.h"
 #include "shake256.h"
 #include "interlock.h"
+#include "vectors.h"
 
 #define CHECK(expr) do { if (!(expr)) { \
     fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #expr); return 1; \
@@ -77,25 +78,13 @@ static int shake(void)
 
 static int schedule(void)
 {
-    /* Independently calculated with Python hashlib.shake_256, not this C XOF. */
-    static const uint32_t first[2][4] = {
-        {0x634a205d,0xd56cc590,0xd6cf518c,0x9c8022bf},
-        {0x4fa30366,0xa9c54156,0xd03461f0,0x4c6b264a}
-    };
-    static const uint32_t last[2][4] = {
-        {0x2315c82b,0x3b5f4693,0xc3cab5d3,0x80f8f50b},
-        {0x8e035ac9,0x590a5906,0x7e315ea2,0x8358460a}
-    };
     interlock_ctx ctx = {0}, expected = {0};
     uint8_t key[32] = {0};
-    for (unsigned kind = 0; kind < 2; ++kind) {
-        for (unsigned i = 0; i < sizeof key; ++i) key[i] = kind ? (uint8_t)i : 0;
-        CHECK(interlock_init(&ctx,key,sizeof key) == INTERLOCK_OK);
-        for (unsigned j = 0; j < 4; ++j) {
-            CHECK(ctx.round_keys[0][j] == first[kind][j]);
-            CHECK(ctx.round_keys[27][j] == last[kind][j]);
-        }
+    for (size_t kind = 0; kind < sizeof kat_vectors/sizeof kat_vectors[0]; ++kind) {
+        CHECK(interlock_init(&ctx,kat_vectors[kind].key,32) == INTERLOCK_OK);
+        CHECK(memcmp(ctx.round_keys,kat_vectors[kind].keys,sizeof ctx.round_keys) == 0);
     }
+    memcpy(key,kat_vectors[3].key,sizeof key);
     expected = ctx;
     memcpy(&ctx,key,sizeof key);
     CHECK(interlock_init(&ctx,(const uint8_t *)&ctx,sizeof key) == INTERLOCK_OK);
@@ -118,34 +107,28 @@ static uint32_t random_word(uint32_t *s)
 
 static int blocks(void)
 {
-    static const char *cipher[3] = {
-        "46272f4086f471ad8a7ec9c9917912bb",
-        "f8c5d0db5d69b06a2ef4398b6b4f55d6",
-        "55b8e32c0f8b46ab083cb4a21150c3e8"
-    };
-    static const uint32_t first[3][4] = {
-        {0xdc5f3fbc,0x6b6085ed,0x9fadd9e7,0x1e7ad34b},
-        {0x4843cd73,0x30b0b573,0x2494c69a,0xa3c68a63},
-        {0x9e8e7ac9,0x372e7347,0xc98c0861,0x95b5a68c}
-    };
     interlock_ctx ctx = {0};
     uint8_t key[32], in[16], out[32], recovered[16];
-    for (unsigned kind = 0; kind < 3; ++kind) {
-        for (unsigned i = 0; i < sizeof key; ++i)
-            key[i] = kind == 0 ? 0 : kind == 1 ? 255 : (uint8_t)i;
-        for (unsigned i = 0; i < sizeof in; ++i) in[i] = key[i];
+    for (size_t kind = 0; kind < sizeof kat_vectors/sizeof kat_vectors[0]; ++kind) {
+        memcpy(key,kat_vectors[kind].key,32);
+        memcpy(in,kat_vectors[kind].plaintext,16);
         CHECK(interlock_init(&ctx,key,sizeof key) == 0);
         uint32_t state[4];
         for (unsigned j = 0; j < 4; ++j) state[j] = il_load32(in+4*j);
-        il_round(state,ctx.round_keys[0]);
-        CHECK(memcmp(state,first[kind],sizeof state) == 0);
-        il_inverse_round(state,ctx.round_keys[0]);
+        for (unsigned r = 0; r < 28; ++r) {
+            il_round(state,ctx.round_keys[r]);
+            CHECK(memcmp(state,kat_vectors[kind].states[r+1],sizeof state) == 0);
+        }
+        for (unsigned r = 28; r-- > 0;) {
+            il_inverse_round(state,ctx.round_keys[r]);
+            CHECK(memcmp(state,kat_vectors[kind].states[r],sizeof state) == 0);
+        }
         for (unsigned j = 0; j < 4; ++j) CHECK(state[j] == il_load32(in+4*j));
         memset(out,0xa5,sizeof out);
         CHECK(interlock_encrypt_block(&ctx,out,sizeof out,in,sizeof in) == 0);
-        CHECK(hex_equal(out,cipher[kind],16));
+        CHECK(memcmp(out,kat_vectors[kind].ciphertext,16) == 0);
         for (unsigned i = 16; i < sizeof out; ++i) CHECK(out[i] == 0xa5);
-        CHECK(interlock_decrypt_block(&ctx,recovered,sizeof recovered,out,16) == 0);
+        CHECK(interlock_decrypt_block(&ctx,recovered,sizeof recovered,kat_vectors[kind].ciphertext,16) == 0);
         CHECK(memcmp(recovered,in,sizeof in) == 0);
     }
     uint32_t seed = UINT32_C(0x494c434b);

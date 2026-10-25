@@ -7,7 +7,7 @@ LDFLAGS =
 WARN = -std=c11 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
 INCLUDES = -Iinclude -Isrc
 
-.PHONY: all check clean
+.PHONY: all check check-c verify clean
 all: build/libinterlock.a
 
 SOURCES = src/interlock.c src/shake256.c
@@ -22,11 +22,20 @@ build/%.o: src/%.c $(HEADERS) | build
 build/libinterlock.a: build/interlock.o build/shake256.o
 	$(AR) rcs $@ $^
 
-build/kat: tests/kat.c $(SOURCES) $(HEADERS) | build
+build/kat: tests/kat.c tests/vectors.h $(SOURCES) $(HEADERS) | build
 	$(CC) $(CPPFLAGS) $(INCLUDES) $(CFLAGS) $(WARN) tests/kat.c $(SOURCES) $(LDFLAGS) -o $@
 
-check: build/kat
+check-c: build/kat
 	./build/kat
+
+build/verify.so: tests/bridge.c $(SOURCES) $(HEADERS) | build
+	$(CC) $(CPPFLAGS) $(INCLUDES) $(CFLAGS) $(WARN) -fPIC -shared tests/bridge.c $(SOURCES) $(LDFLAGS) -o $@
+
+verify: build/verify.so
+	$(PYTHON) tests/reference.py
+	$(PYTHON) tests/verify.py
+
+check: check-c verify
 
 clean:
 	rm -rf build
