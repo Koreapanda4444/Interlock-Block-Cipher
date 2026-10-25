@@ -51,6 +51,7 @@ research: build/verify.so
 	$(PYTHON) research/differential.py
 	$(PYTHON) research/symmetry.py
 	$(PYTHON) research/integral.py
+	$(PYTHON) research/differential.py --extend
 
 sanitize:
 	$(MAKE) clean
