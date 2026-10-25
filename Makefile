@@ -37,6 +37,7 @@ verify: build/verify.so
 
 research-check: build/verify.so
 	$(PYTHON) research/common.py
+	$(PYTHON) research/support.py
 
 check: check-c verify research-check
 
