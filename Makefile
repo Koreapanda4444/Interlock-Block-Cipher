@@ -39,6 +39,7 @@ research-check: build/verify.so
 	$(PYTHON) research/common.py
 	$(PYTHON) research/support.py
 	$(PYTHON) research/components.py
+	$(PYTHON) research/addition.py
 
 check: check-c verify research-check
 
