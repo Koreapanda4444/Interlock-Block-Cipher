@@ -73,4 +73,28 @@ static inline uint32_t il_fm(uint32_t x, uint32_t k)
     return il_linear(il_sbox(w ^ il_rol32(k, 13)));
 }
 
+static inline void il_round(uint32_t state[4], const uint32_t key[4])
+{
+    uint32_t a = state[0], b = state[1], c = state[2], d = state[3];
+    a ^= il_fs(b,key[0]);
+    c ^= il_fm(d,key[1]);
+    b ^= il_fm(c,key[2]);
+    d ^= il_fs(a,key[3]);
+    state[0] = il_rol32(c,5);
+    state[1] = il_rol32(a,13);
+    state[2] = il_rol32(d,21);
+    state[3] = il_rol32(b,27);
+}
+
+static inline void il_inverse_round(uint32_t state[4], const uint32_t key[4])
+{
+    uint32_t a = il_ror32(state[1],13), b = il_ror32(state[3],27);
+    uint32_t c = il_ror32(state[0],5), d = il_ror32(state[2],21);
+    d ^= il_fs(a,key[3]);
+    b ^= il_fm(c,key[2]);
+    c ^= il_fm(d,key[1]);
+    a ^= il_fs(b,key[0]);
+    state[0] = a; state[1] = b; state[2] = c; state[3] = d;
+}
+
 #endif

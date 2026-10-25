@@ -110,11 +110,111 @@ static int schedule(void)
     return 0;
 }
 
+static uint32_t random_word(uint32_t *s)
+{
+    *s ^= *s << 13; *s ^= *s >> 17; *s ^= *s << 5;
+    return *s;
+}
+
+static int blocks(void)
+{
+    static const char *cipher[3] = {
+        "46272f4086f471ad8a7ec9c9917912bb",
+        "f8c5d0db5d69b06a2ef4398b6b4f55d6",
+        "55b8e32c0f8b46ab083cb4a21150c3e8"
+    };
+    static const uint32_t first[3][4] = {
+        {0xdc5f3fbc,0x6b6085ed,0x9fadd9e7,0x1e7ad34b},
+        {0x4843cd73,0x30b0b573,0x2494c69a,0xa3c68a63},
+        {0x9e8e7ac9,0x372e7347,0xc98c0861,0x95b5a68c}
+    };
+    interlock_ctx ctx = {0};
+    uint8_t key[32], in[16], out[32], recovered[16];
+    for (unsigned kind = 0; kind < 3; ++kind) {
+        for (unsigned i = 0; i < sizeof key; ++i)
+            key[i] = kind == 0 ? 0 : kind == 1 ? 255 : (uint8_t)i;
+        for (unsigned i = 0; i < sizeof in; ++i) in[i] = key[i];
+        CHECK(interlock_init(&ctx,key,sizeof key) == 0);
+        uint32_t state[4];
+        for (unsigned j = 0; j < 4; ++j) state[j] = il_load32(in+4*j);
+        il_round(state,ctx.round_keys[0]);
+        CHECK(memcmp(state,first[kind],sizeof state) == 0);
+        il_inverse_round(state,ctx.round_keys[0]);
+        for (unsigned j = 0; j < 4; ++j) CHECK(state[j] == il_load32(in+4*j));
+        memset(out,0xa5,sizeof out);
+        CHECK(interlock_encrypt_block(&ctx,out,sizeof out,in,sizeof in) == 0);
+        CHECK(hex_equal(out,cipher[kind],16));
+        for (unsigned i = 16; i < sizeof out; ++i) CHECK(out[i] == 0xa5);
+        CHECK(interlock_decrypt_block(&ctx,recovered,sizeof recovered,out,16) == 0);
+        CHECK(memcmp(recovered,in,sizeof in) == 0);
+    }
+    uint32_t seed = UINT32_C(0x494c434b);
+    for (unsigned sample = 0; sample < 4096+384; ++sample) {
+        if (sample < 384) {
+            memset(key,0,sizeof key); memset(in,0,sizeof in);
+            if (sample < 256) key[sample/8] = (uint8_t)(1U << (sample%8));
+            else in[(sample-256)/8] = (uint8_t)(1U << ((sample-256)%8));
+        } else {
+            for (unsigned i = 0; i < sizeof key; ++i) key[i] = (uint8_t)random_word(&seed);
+            for (unsigned i = 0; i < sizeof in; ++i) in[i] = (uint8_t)random_word(&seed);
+        }
+        CHECK(interlock_init(&ctx,key,sizeof key) == 0);
+        CHECK(interlock_encrypt_block(&ctx,out,sizeof out,in,sizeof in) == 0);
+        CHECK(interlock_decrypt_block(&ctx,recovered,sizeof recovered,out,16) == 0);
+        CHECK(memcmp(recovered,in,sizeof in) == 0);
+    }
+    interlock_clear(&ctx);
+    return 0;
+}
+
+static int buffer_contract(void)
+{
+    typedef int (*operation)(const interlock_ctx *,uint8_t *,size_t,const uint8_t *,size_t);
+    operation ops[2] = {interlock_encrypt_block,interlock_decrypt_block};
+    interlock_ctx ctx = {0}, snapshot;
+    uint8_t key[32] = {0}, input[16] = {0}, expected[16];
+    uint8_t buf[64], before[64];
+    const size_t bad_lengths[] = {0,15,17,SIZE_MAX};
+    CHECK(interlock_init(&ctx,key,sizeof key) == 0);
+    snapshot = ctx;
+    for (unsigned op = 0; op < 2; ++op) {
+        CHECK(ops[op](&ctx,expected,16,input,16) == 0);
+        for (int delta = -15; delta <= 15; ++delta) {
+            memset(buf,0xa5,sizeof buf); memcpy(buf+24,input,16);
+            memcpy(before,buf,sizeof buf);
+            uint8_t *dest = buf+24+delta;
+            CHECK(ops[op](&ctx,dest,16,buf+24,16) == 0);
+            CHECK(memcmp(dest,expected,16) == 0);
+            for (size_t i = 0; i < sizeof buf; ++i)
+                if (buf+i < dest || buf+i >= dest+16) CHECK(buf[i] == before[i]);
+        }
+        memset(buf,0xa5,sizeof buf); memcpy(before,buf,sizeof buf);
+        for (unsigned i = 0; i < sizeof bad_lengths/sizeof bad_lengths[0]; ++i)
+            CHECK(ops[op](&ctx,buf,sizeof buf,input,bad_lengths[i]) == INTERLOCK_ERR_ARGUMENT);
+        CHECK(ops[op](&ctx,buf,15,input,16) == INTERLOCK_ERR_ARGUMENT);
+        CHECK(ops[op](&ctx,buf,0,input,16) == INTERLOCK_ERR_ARGUMENT);
+        CHECK(ops[op](NULL,buf,16,input,16) == INTERLOCK_ERR_ARGUMENT);
+        CHECK(ops[op](&ctx,NULL,16,input,16) == INTERLOCK_ERR_ARGUMENT);
+        CHECK(ops[op](&ctx,buf,16,NULL,16) == INTERLOCK_ERR_ARGUMENT);
+        CHECK(ops[op](&ctx,(uint8_t *)&ctx,16,input,16) == INTERLOCK_ERR_ARGUMENT);
+        CHECK(ops[op](&ctx,((uint8_t *)&ctx)+sizeof ctx-1,16,input,16) == INTERLOCK_ERR_ARGUMENT);
+        CHECK(memcmp(&ctx,&snapshot,sizeof ctx) == 0);
+        interlock_clear(&ctx);
+        CHECK(ops[op](&ctx,buf,16,input,16) == INTERLOCK_ERR_STATE);
+        CHECK(memcmp(buf,before,sizeof buf) == 0);
+        ctx = snapshot;
+    }
+    interlock_clear(&ctx); interlock_clear(&snapshot);
+    return 0;
+}
+
 int main(void)
 {
     CHECK(primitives() == 0);
     CHECK(shake() == 0);
     CHECK(schedule() == 0);
-    puts("C checks passed: primitives, NIST SHAKE256, schedule KAT, invalid arguments");
+    CHECK(blocks() == 0);
+    CHECK(buffer_contract() == 0);
+    puts("C checks passed: primitives, SHAKE/schedule/block KAT, 4480 round trips, buffer contract");
     return 0;
 }

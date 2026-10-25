@@ -24,6 +24,13 @@ typedef struct {
 int interlock_init(interlock_ctx *ctx, const uint8_t *key, size_t key_len);
 void interlock_clear(interlock_ctx *ctx);
 
+/* Exact 16-byte input; capacity >= 16. Output is unchanged on failure.
+ * Input/output may overlap. Output must not overlap ctx. */
+int interlock_encrypt_block(const interlock_ctx *ctx, uint8_t *out, size_t out_capacity,
+                            const uint8_t *in, size_t in_len);
+int interlock_decrypt_block(const interlock_ctx *ctx, uint8_t *out, size_t out_capacity,
+                            const uint8_t *in, size_t in_len);
+
 #ifdef __cplusplus
 }
 #endif
