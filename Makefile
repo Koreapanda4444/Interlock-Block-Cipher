@@ -40,11 +40,13 @@ research-check: build/verify.so
 	$(PYTHON) research/support.py
 	$(PYTHON) research/components.py
 	$(PYTHON) research/addition.py
+	$(PYTHON) research/differential.py --check
 
 check: check-c verify research-check
 
 research: build/verify.so
 	$(PYTHON) research/analyze.py
+	$(PYTHON) research/differential.py
 
 sanitize:
 	$(MAKE) clean
