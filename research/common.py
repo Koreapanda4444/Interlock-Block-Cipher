@@ -1,0 +1,134 @@
+"""Bounded, typed research oracle and machine-readable experiment evidence."""
+
+import ctypes as C
+import hashlib
+import json
+from pathlib import Path
+import platform
+import random
+import resource
+import subprocess
+import sys
+import time
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import reference as ref
+from verify import Context, U8, array, load_library, require
+
+
+class BudgetExceeded(RuntimeError):
+    pass
+
+
+class Session:
+    def __init__(self, seed, max_queries=1 << 24, seconds=120):
+        if max_queries < 0 or seconds <= 0:
+            raise ValueError("invalid experiment budget")
+        self.seed, self.max_queries, self.seconds = seed, max_queries, seconds
+        self.started = time.perf_counter()
+        self.queries = 0
+        self.ledger = {}
+
+    def reserve(self, count, rounds, inverse):
+        if self.queries + count > self.max_queries:
+            raise BudgetExceeded("block-query budget exhausted")
+        if time.perf_counter() - self.started > self.seconds:
+            raise BudgetExceeded("cooperative wall-time budget exhausted")
+        self.queries += count
+        label = f"{'inverse' if inverse else 'forward'}/{rounds}"
+        self.ledger[label] = self.ledger.get(label, 0) + count
+
+    def save(self, name, result):
+        paths = [*ROOT.glob("src/*.[ch]"), *ROOT.glob("include/*.h"),
+                 *ROOT.glob("tests/*.[ch]"), *ROOT.glob("tests/*.py"),
+                 *ROOT.glob("research/*.py"), ROOT / "docs/spec_ko.md", ROOT / "Makefile"]
+        sources = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
+                   for p in sorted(set(paths))}
+        document = {"experiment": name, "seed": hex(self.seed), "platform": platform.platform(),
+                    "python": platform.python_version(), "source_sha256": sources,
+                    "binary_sha256": hashlib.sha256((ROOT / "build/verify.so").read_bytes()).hexdigest(),
+                    "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+                    "git_worktree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
+                    "wall_seconds": time.perf_counter() - self.started,
+                    "peak_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                    "query_budget": self.max_queries, "oracle_queries": self.queries,
+                    "query_ledger": self.ledger, "cooperative_seconds_budget": self.seconds,
+                    "status": "completed", "result": result}
+        if platform.system() == "Darwin":
+            document["peak_rss_kib"] /= 1024
+        path = ROOT / "build" / f"{name}.json"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(json.dumps(document, indent=2) + "\n")
+        print(f"{name}: queries={self.queries}, wall={document['wall_seconds']:.3f}s, "
+              f"peak={document['peak_rss_kib']}KiB -> build/{name}.json")
+        return document
+
+
+class Oracle:
+    def __init__(self, session, key, lib=None):
+        if len(key) != 32:
+            raise ValueError("key must be exactly 32 bytes")
+        self.session, self.lib = session, lib or load_library()
+        self.ctx, self.closed = Context(), False
+        require(self.lib.interlock_init(C.byref(self.ctx), array(key), 32) == 0, "oracle init")
+
+    def blocks(self, data, rounds, inverse=False):
+        if self.closed or not 0 <= rounds <= 28 or len(data) % 16:
+            raise ValueError("closed oracle, invalid rounds or block length")
+        count = len(data) // 16
+        if count > 1 << 17:
+            raise ValueError("one batch may contain at most 131072 blocks")
+        self.session.reserve(count, rounds, bool(inverse))
+        output = (U8 * len(data))()
+        require(self.lib.il_test_batch(C.byref(self.ctx), output, array(data), count, rounds, bool(inverse)) == 0,
+                "research batch rejected")
+        return bytes(output)
+
+    def close(self):
+        if not self.closed:
+            self.lib.interlock_clear(C.byref(self.ctx))
+            self.closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+
+def check():
+    session = Session(0x4f5241434c45, max_queries=512)
+    rng = random.Random(session.seed)
+    key, blocks = rng.randbytes(32), rng.randbytes(64)
+    traces = [ref.trace(key, blocks[i:i+16])[1] for i in range(0, 64, 16)]
+    with Oracle(session, key) as oracle:
+        for rounds in range(29):
+            output = oracle.blocks(blocks, rounds)
+            expected = b"".join(b"".join(w.to_bytes(4, "little") for w in t[rounds]) for t in traces)
+            require(output == expected, f"batch independent prefix {rounds}")
+            require(oracle.blocks(output, rounds, True) == blocks, f"inverse prefix {rounds}")
+        for data, rounds in ((b"x", 1), (bytes(16), -1), (bytes(16), 29)):
+            try:
+                oracle.blocks(data, rounds)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("oracle must reject invalid input")
+    require(bytes(oracle.ctx) == bytes(C.sizeof(Context)), "oracle context erased")
+    limited = Session(1, max_queries=1)
+    with Oracle(limited, bytes(32)) as oracle:
+        try:
+            oracle.blocks(bytes(32), 1)
+        except BudgetExceeded:
+            pass
+        else:
+            raise AssertionError("query limit must stop before a batch")
+    require(limited.queries == 0, "rejected batch must consume no queries")
+    session.save("oracle", {"prefixes_checked": 29, "blocks_per_prefix": 4,
+                            "inverse_model": "inverse of the first r rounds, not the last r rounds",
+                            "production_api": "unchanged, fixed 28 rounds"})
+
+
+if __name__ == "__main__":
+    check()

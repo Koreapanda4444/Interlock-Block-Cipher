@@ -4,6 +4,7 @@
 #include "shake256.h"
 #include "interlock.h"
 #include "vectors.h"
+#include "bridge.h"
 
 #define CHECK(expr) do { if (!(expr)) { \
     fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #expr); return 1; \
@@ -191,6 +192,30 @@ static int buffer_contract(void)
     return 0;
 }
 
+static int research_bridge(void)
+{
+    interlock_ctx ctx = {0};
+    uint8_t key[32] = {0}, in[64] = {0}, out[64], saved[64];
+    CHECK(interlock_init(&ctx,key,32) == 0);
+    for (unsigned i = 0; i < sizeof in; ++i) in[i] = (uint8_t)i;
+    for (unsigned rounds = 0; rounds <= 28; ++rounds) {
+        CHECK(il_test_batch(&ctx,out,in,4,rounds,0) == 0);
+        CHECK(il_test_batch(&ctx,out,out,4,rounds,1) == 0);
+        CHECK(memcmp(out,in,sizeof in) == 0);
+    }
+    memset(out,0xa5,sizeof out); memcpy(saved,out,sizeof out);
+    CHECK(il_test_batch(&ctx,out,in,SIZE_MAX/16+1,1,0) == -1);
+    CHECK(il_test_batch(&ctx,out,in,1,29,0) == -1);
+    CHECK(il_test_batch(&ctx,out,in,1,1,2) == -1);
+    CHECK(il_test_batch(NULL,out,in,1,1,0) == -1);
+    CHECK(il_test_batch(&ctx,NULL,in,1,1,0) == -1);
+    CHECK(il_test_batch(&ctx,out,NULL,1,1,0) == -1);
+    CHECK(memcmp(out,saved,sizeof out) == 0);
+    CHECK(il_test_batch(NULL,NULL,NULL,0,0,0) == 0);
+    interlock_clear(&ctx);
+    return 0;
+}
+
 int main(void)
 {
     CHECK(primitives() == 0);
@@ -198,6 +223,7 @@ int main(void)
     CHECK(schedule() == 0);
     CHECK(blocks() == 0);
     CHECK(buffer_contract() == 0);
+    CHECK(research_bridge() == 0);
     puts("C checks passed: primitives, SHAKE/schedule/block KAT, 4480 round trips, buffer contract");
     return 0;
 }

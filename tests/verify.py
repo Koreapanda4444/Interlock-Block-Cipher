@@ -49,6 +49,8 @@ def load_library():
     lib.il_test_round.restype = None
     lib.il_test_reduced.argtypes = [C.POINTER(Context), P8, P8, C.c_uint]
     lib.il_test_reduced.restype = C.c_int
+    lib.il_test_batch.argtypes = [C.POINTER(Context), P8, P8, C.c_size_t, C.c_uint, C.c_int]
+    lib.il_test_batch.restype = C.c_int
     lib.il_shake256.argtypes = [P8, C.c_size_t, P8, C.c_size_t]
     lib.il_shake256.restype = C.c_int
     require(lib.il_test_ctx_size() == C.sizeof(Context), "ctypes context layout")

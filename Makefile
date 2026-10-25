@@ -7,7 +7,7 @@ LDFLAGS =
 WARN = -std=c11 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
 INCLUDES = -Iinclude -Isrc
 
-.PHONY: all check check-c verify research sanitize clean
+.PHONY: all check check-c verify research research-check sanitize clean
 all: build/libinterlock.a
 
 SOURCES = src/interlock.c src/shake256.c
@@ -22,20 +22,23 @@ build/%.o: src/%.c $(HEADERS) | build
 build/libinterlock.a: build/interlock.o build/shake256.o
 	$(AR) rcs $@ $^
 
-build/kat: tests/kat.c tests/vectors.h $(SOURCES) $(HEADERS) | build
-	$(CC) $(CPPFLAGS) $(INCLUDES) $(CFLAGS) $(WARN) tests/kat.c $(SOURCES) $(LDFLAGS) -o $@
+build/kat: tests/kat.c tests/vectors.h tests/bridge.c tests/bridge.h $(SOURCES) $(HEADERS) | build
+	$(CC) $(CPPFLAGS) $(INCLUDES) $(CFLAGS) $(WARN) tests/kat.c tests/bridge.c $(SOURCES) $(LDFLAGS) -o $@
 
 check-c: build/kat
 	./build/kat
 
-build/verify.so: tests/bridge.c $(SOURCES) $(HEADERS) | build
+build/verify.so: tests/bridge.c tests/bridge.h $(SOURCES) $(HEADERS) | build
 	$(CC) $(CPPFLAGS) $(INCLUDES) $(CFLAGS) $(WARN) -fPIC -shared tests/bridge.c $(SOURCES) $(LDFLAGS) -o $@
 
 verify: build/verify.so
 	$(PYTHON) tests/reference.py
 	$(PYTHON) tests/verify.py
 
-check: check-c verify
+research-check: build/verify.so
+	$(PYTHON) research/common.py
+
+check: check-c verify research-check
 
 research: build/verify.so
 	$(PYTHON) research/analyze.py
