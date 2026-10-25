@@ -51,6 +51,10 @@ def load_library():
     lib.il_test_reduced.restype = C.c_int
     lib.il_test_batch.argtypes = [C.POINTER(Context), P8, P8, C.c_size_t, C.c_uint, C.c_int]
     lib.il_test_batch.restype = C.c_int
+    lib.il_test_components.argtypes = [P32, P32, C.c_size_t, U32, C.c_int]
+    lib.il_test_components.restype = C.c_int
+    lib.il_test_diff_counts.argtypes = [C.POINTER(C.c_uint64), P8, C.c_size_t, C.c_uint]
+    lib.il_test_diff_counts.restype = C.c_int
     lib.il_shake256.argtypes = [P8, C.c_size_t, P8, C.c_size_t]
     lib.il_shake256.restype = C.c_int
     require(lib.il_test_ctx_size() == C.sizeof(Context), "ctypes context layout")

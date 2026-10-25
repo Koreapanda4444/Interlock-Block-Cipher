@@ -97,6 +97,16 @@ class Oracle:
         self.close()
 
 
+def difference_counts(pairs, block_bytes=16, lib=None):
+    if not 1 <= block_bytes <= 16 or len(pairs) % (2*block_bytes):
+        raise ValueError("complete pairs of 1..16-byte outputs required")
+    lib = lib or load_library()
+    counts = (C.c_uint64 * (8*block_bytes))()
+    require(lib.il_test_diff_counts(counts,array(pairs),len(pairs)//(2*block_bytes),block_bytes) == 0,
+            "difference counter")
+    return list(counts)
+
+
 def check():
     session = Session(0x4f5241434c45, max_queries=512)
     rng = random.Random(session.seed)

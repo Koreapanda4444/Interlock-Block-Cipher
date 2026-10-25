@@ -212,6 +212,30 @@ static int research_bridge(void)
     CHECK(il_test_batch(&ctx,out,NULL,1,1,0) == -1);
     CHECK(memcmp(out,saved,sizeof out) == 0);
     CHECK(il_test_batch(NULL,NULL,NULL,0,0,0) == 0);
+    uint32_t words[4] = {0,1,UINT32_MAX,UINT32_C(0x80000000)}, components[4];
+    for (int mixed = 0; mixed < 2; ++mixed) {
+        CHECK(il_test_components(components,words,4,17,mixed) == 0);
+        for (unsigned i = 0; i < 4; ++i)
+            CHECK(components[i] == (mixed ? il_fm(words[i],17) : il_fs(words[i],17)));
+    }
+    CHECK(il_test_components(components,words,SIZE_MAX/4+1,0,0) == -1);
+    CHECK(il_test_components(components,words,4,0,2) == -1);
+    CHECK(il_test_components(NULL,words,4,0,0) == -1);
+    CHECK(il_test_components(NULL,NULL,0,0,0) == 0);
+    uint64_t counts[128];
+    CHECK(il_test_diff_counts(counts,in,2,16) == 0);
+    for (unsigned bit = 0; bit < 128; ++bit) {
+        unsigned expected = 0;
+        for (unsigned pair = 0; pair < 2; ++pair)
+            expected += (unsigned)(((in[32*pair+bit/8] ^ in[32*pair+16+bit/8]) >> (bit%8)) & 1);
+        CHECK(counts[bit] == expected);
+    }
+    CHECK(il_test_diff_counts(counts,in,SIZE_MAX/32+1,16) == -1);
+    CHECK(il_test_diff_counts(counts,NULL,1,16) == -1);
+    CHECK(il_test_diff_counts(counts,in,1,0) == -1);
+    CHECK(il_test_diff_counts(counts,in,1,17) == -1);
+    CHECK(il_test_diff_counts(NULL,in,1,16) == -1);
+    CHECK(il_test_diff_counts(counts,NULL,0,16) == 0);
     interlock_clear(&ctx);
     return 0;
 }

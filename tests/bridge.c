@@ -41,3 +41,27 @@ int il_test_reduced(const interlock_ctx *ctx, uint8_t *out, const uint8_t *in, u
 {
     return il_test_batch(ctx,out,in,1,rounds,0);
 }
+
+int il_test_components(uint32_t *out, const uint32_t *in, size_t count, uint32_t key, int mixed)
+{
+    if (count > SIZE_MAX/sizeof(uint32_t) || (mixed != 0 && mixed != 1)) return -1;
+    if (count == 0) return 0;
+    if (out == NULL || in == NULL) return -1;
+    for (size_t i = 0; i < count; ++i) out[i] = mixed ? il_fm(in[i],key) : il_fs(in[i],key);
+    return 0;
+}
+
+int il_test_diff_counts(uint64_t *counts, const uint8_t *pairs, size_t count, unsigned block_bytes)
+{
+    if (block_bytes == 0 || block_bytes > 16 || counts == NULL ||
+        count > SIZE_MAX/(2*block_bytes) || (pairs == NULL && count != 0)) return -1;
+    for (unsigned bit = 0; bit < block_bytes*8; ++bit) counts[bit] = 0;
+    for (size_t i = 0; i < count; ++i) {
+        for (unsigned byte = 0; byte < block_bytes; ++byte) {
+            uint8_t delta = pairs[2*block_bytes*i+byte] ^ pairs[2*block_bytes*i+block_bytes+byte];
+            for (unsigned bit = 0; bit < 8; ++bit)
+                counts[8*byte+bit] += (uint64_t)(((unsigned)delta >> bit) & 1U);
+        }
+    }
+    return 0;
+}
