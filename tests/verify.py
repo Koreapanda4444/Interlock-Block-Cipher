@@ -40,8 +40,9 @@ def load_library():
     lib.interlock_clear.restype = None
     lib.il_test_ctx_size.argtypes = []
     lib.il_test_ctx_size.restype = C.c_size_t
-    lib.il_test_sbox.argtypes = [U32]
-    lib.il_test_sbox.restype = U32
+    for name in ("il_test_sbox", "il_test_linear"):
+        getattr(lib, name).argtypes = [U32]
+        getattr(lib, name).restype = U32
     for name in ("il_test_fs", "il_test_fm"):
         getattr(lib, name).argtypes = [U32, U32]
         getattr(lib, name).restype = U32

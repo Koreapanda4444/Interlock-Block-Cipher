@@ -7,7 +7,7 @@ LDFLAGS =
 WARN = -std=c11 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
 INCLUDES = -Iinclude -Isrc
 
-.PHONY: all check check-c verify clean
+.PHONY: all check check-c verify research clean
 all: build/libinterlock.a
 
 SOURCES = src/interlock.c src/shake256.c
@@ -36,6 +36,9 @@ verify: build/verify.so
 	$(PYTHON) tests/verify.py
 
 check: check-c verify
+
+research: build/verify.so
+	$(PYTHON) research/analyze.py
 
 clean:
 	rm -rf build

@@ -4,6 +4,7 @@
 
 size_t il_test_ctx_size(void) { return sizeof(interlock_ctx); }
 uint32_t il_test_sbox(uint32_t x) { return il_sbox(x); }
+uint32_t il_test_linear(uint32_t x) { return il_linear(x); }
 uint32_t il_test_fs(uint32_t x, uint32_t k) { return il_fs(x,k); }
 uint32_t il_test_fm(uint32_t x, uint32_t k) { return il_fm(x,k); }
 
