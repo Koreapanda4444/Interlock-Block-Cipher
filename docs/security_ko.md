@@ -34,6 +34,12 @@ PRP는 암호화 함수만, 강한 PRP는 역함수 접근까지 허용한다.
 
 ## 미검증 주장과 반증 가능한 가설
 
+SHAKE256 코드는 FIPS 202와 Keccak 저자의 수식에서 작성했다. 외부 소스 코드를
+복사하지 않았고 별도 런타임 라이브러리에 의존하지 않는다. 표준 KAT는
+[NIST Msg0](https://csrc.nist.gov/csrc/media/projects/cryptographic-standards-and-guidelines/documents/examples/shake256_msg0.pdf)와
+[Msg1600](https://csrc.nist.gov/csrc/media/projects/cryptographic-standards-and-guidelines/documents/examples/shake256_msg1600.pdf)의
+첫 512 출력 비트이며 Interlock의 자체 KAT와 구분한다.
+
 | 항목 | 확인할 조건 | 현재 상태 / 실패 시 조치 |
 |---|---|---|
 | 명세와 C 구현이 일치 | 독립 계산한 키·각 라운드·블록 KAT | 구현 전, 불일치 시 수정 |

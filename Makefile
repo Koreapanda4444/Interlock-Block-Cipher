@@ -13,8 +13,8 @@ all: build/kat
 build:
 	mkdir -p build
 
-build/kat: tests/kat.c src/interlock_internal.h | build
-	$(CC) $(CPPFLAGS) $(INCLUDES) $(CFLAGS) $(WARN) tests/kat.c $(LDFLAGS) -o $@
+build/kat: tests/kat.c src/shake256.c src/shake256.h src/interlock_internal.h | build
+	$(CC) $(CPPFLAGS) $(INCLUDES) $(CFLAGS) $(WARN) tests/kat.c src/shake256.c $(LDFLAGS) -o $@
 
 check: build/kat
 	./build/kat

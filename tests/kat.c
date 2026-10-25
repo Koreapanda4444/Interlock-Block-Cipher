@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "interlock_internal.h"
+#include "shake256.h"
 
 #define CHECK(expr) do { if (!(expr)) { \
     fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #expr); return 1; \
@@ -41,9 +42,42 @@ static int primitives(void)
     return 0;
 }
 
+static int hex_equal(const uint8_t *actual, const char *hex, size_t n)
+{
+    for (size_t i = 0; i < n; ++i) {
+        unsigned byte;
+        if (sscanf(hex+2*i, "%2x", &byte) != 1 || actual[i] != byte) return 0;
+    }
+    return 1;
+}
+
+static int shake(void)
+{
+    /* First 512 output bits of the NIST SHAKE256 Msg0 and Msg1600 examples. */
+    static const char empty[] =
+        "46b9dd2b0ba88d13233b3feb743eeb243fcd52ea62b81b82b50c27646ed5762f"
+        "d75dc4ddd8c0f200cb05019d67b592f6fc821c49479ab48640292eacb3b7c4be";
+    static const char a3[] =
+        "cd8a920ed141aa0407a22d59288652e9d9f1a7ee0c1e7c1ca699424da84a904d"
+        "2d700caae7396ece96604440577da4f3aa22aeb8857f961c4cd8e06f0ae6610b";
+    uint8_t input[200], out[64];
+    CHECK(il_shake256(out, sizeof out, NULL, 0) == 0);
+    CHECK(hex_equal(out, empty, sizeof out));
+    memset(input, 0xa3, sizeof input);
+    CHECK(il_shake256(out, sizeof out, input, sizeof input) == 0);
+    CHECK(hex_equal(out, a3, sizeof out));
+    memset(out, 0x5a, sizeof out);
+    CHECK(il_shake256(out, sizeof out, NULL, 1) == -1);
+    for (unsigned i = 0; i < sizeof out; ++i) CHECK(out[i] == 0x5a);
+    CHECK(il_shake256(NULL, 1, input, sizeof input) == -1);
+    CHECK(il_shake256(NULL, 0, NULL, 0) == 0);
+    return 0;
+}
+
 int main(void)
 {
     CHECK(primitives() == 0);
-    puts("C checks passed: S-box exhaustive positions, rotations, unaligned LE32, erase");
+    CHECK(shake() == 0);
+    puts("C checks passed: primitives, NIST SHAKE256 KAT and invalid arguments");
     return 0;
 }
