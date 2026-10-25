@@ -7,7 +7,7 @@ LDFLAGS =
 WARN = -std=c11 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
 INCLUDES = -Iinclude -Isrc
 
-.PHONY: all check check-c verify research clean
+.PHONY: all check check-c verify research sanitize clean
 all: build/libinterlock.a
 
 SOURCES = src/interlock.c src/shake256.c
@@ -39,6 +39,10 @@ check: check-c verify
 
 research: build/verify.so
 	$(PYTHON) research/analyze.py
+
+sanitize:
+	$(MAKE) clean
+	$(MAKE) check-c CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" LDFLAGS="-fsanitize=address,undefined"
 
 clean:
 	rm -rf build

@@ -2,7 +2,6 @@
 
 import ctypes as C
 import hashlib
-from pathlib import Path
 import random
 import struct
 
@@ -115,6 +114,10 @@ def check_blocks(lib, rng):
 
 def main():
     require((ref.ROOT / "tests/vectors.h").read_text() == ref.vector_header(), "KAT/specification drift")
+    record = (ref.ROOT / "docs/security_ko.md").read_text()
+    for path in ("docs/spec_ko.md", "tests/vectors.h"):
+        digest = hashlib.sha256((ref.ROOT / path).read_bytes()).hexdigest()
+        require(digest in record, f"Research record fingerprint drift: {path}")
     lib = load_library()
     rng = random.Random(SEED)
     shake = check_shake(lib, rng)

@@ -12,6 +12,40 @@ updates, the PRESENT S-box and the SHAKE256 schedule. The
 [research record](docs/security_ko.md) separates proofs, observations and open
 questions. Earlier designs belong in Git history, not parallel source trees.
 
-Implementation and reproducible checks are being introduced as separate,
-validated commits. No implementation or CI success is claimed by this initial
-specification commit.
+The current checkpoint includes encryption/decryption, a fixed 28-round public
+API, key erasure, independent intermediate-state KATs, and bounded structural
+analysis. Python is used only for independent tests/research; the library has
+no runtime dependencies beyond C11. Reduced-round entry points are test-only.
+
+## Build and verify
+
+On Linux, use a C11 compiler, Make, and Python 3.10+ (standard library only).
+
+```sh
+make all             # build/libinterlock.a
+make check           # C KAT/negative checks plus independent Python comparison
+make research        # bounded analysis; build/analysis.json
+make sanitize        # standalone C tests with ASan and UBSan
+```
+
+Clean before changing compiler/flags. `make sanitize` cleans automatically;
+clean again before loading the ordinary Python test bridge. Instrumented C
+tests run as executables, without loading ASan into Python.
+
+## API
+
+Include `interlock.h` and link `build/libinterlock.a`. Zero-initialize an
+`interlock_ctx`, call `interlock_init(&ctx, key, 32)`, then
+`interlock_encrypt_block(&ctx, out, out_capacity, in, 16)` or the corresponding
+decrypt function. Return values are `INTERLOCK_OK`, `INTERLOCK_ERR_ARGUMENT`,
+and `INTERLOCK_ERR_STATE`. Finish with `interlock_clear(&ctx)`.
+
+Output capacity must be at least 16; only those 16 bytes are written. Block
+errors leave output unchanged. Input/output may overlap; output/context may
+not. Invalid init arguments erase a non-NULL context. Callers guarantee valid
+object extents and must not race context mutation against block operations.
+
+The research record includes a proven one-round distinguisher and the isolated
+FS subkey-exposure limitation. Four-round screening and functional checks do
+not establish full-round security. Big-endian/32-bit targets, timing behavior,
+complete attack bounds and independent cryptanalysis remain unverified.
