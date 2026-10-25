@@ -2,6 +2,7 @@
 #include <string.h>
 #include "interlock_internal.h"
 #include "shake256.h"
+#include "interlock.h"
 
 #define CHECK(expr) do { if (!(expr)) { \
     fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #expr); return 1; \
@@ -74,10 +75,46 @@ static int shake(void)
     return 0;
 }
 
+static int schedule(void)
+{
+    /* Independently calculated with Python hashlib.shake_256, not this C XOF. */
+    static const uint32_t first[2][4] = {
+        {0x634a205d,0xd56cc590,0xd6cf518c,0x9c8022bf},
+        {0x4fa30366,0xa9c54156,0xd03461f0,0x4c6b264a}
+    };
+    static const uint32_t last[2][4] = {
+        {0x2315c82b,0x3b5f4693,0xc3cab5d3,0x80f8f50b},
+        {0x8e035ac9,0x590a5906,0x7e315ea2,0x8358460a}
+    };
+    interlock_ctx ctx = {0}, expected = {0};
+    uint8_t key[32] = {0};
+    for (unsigned kind = 0; kind < 2; ++kind) {
+        for (unsigned i = 0; i < sizeof key; ++i) key[i] = kind ? (uint8_t)i : 0;
+        CHECK(interlock_init(&ctx,key,sizeof key) == INTERLOCK_OK);
+        for (unsigned j = 0; j < 4; ++j) {
+            CHECK(ctx.round_keys[0][j] == first[kind][j]);
+            CHECK(ctx.round_keys[27][j] == last[kind][j]);
+        }
+    }
+    expected = ctx;
+    memcpy(&ctx,key,sizeof key);
+    CHECK(interlock_init(&ctx,(const uint8_t *)&ctx,sizeof key) == INTERLOCK_OK);
+    CHECK(memcmp(ctx.round_keys,expected.round_keys,sizeof ctx.round_keys) == 0);
+    CHECK(interlock_init(&ctx,key,31) == INTERLOCK_ERR_ARGUMENT);
+    for (size_t i = 0; i < sizeof ctx; ++i) CHECK(((const uint8_t *)&ctx)[i] == 0);
+    CHECK(interlock_init(&ctx,NULL,32) == INTERLOCK_ERR_ARGUMENT);
+    CHECK(interlock_init(&ctx,key,33) == INTERLOCK_ERR_ARGUMENT);
+    CHECK(interlock_init(NULL,key,32) == INTERLOCK_ERR_ARGUMENT);
+    interlock_clear(&expected);
+    interlock_clear(NULL);
+    return 0;
+}
+
 int main(void)
 {
     CHECK(primitives() == 0);
     CHECK(shake() == 0);
-    puts("C checks passed: primitives, NIST SHAKE256 KAT and invalid arguments");
+    CHECK(schedule() == 0);
+    puts("C checks passed: primitives, NIST SHAKE256, schedule KAT, invalid arguments");
     return 0;
 }
