@@ -13,8 +13,9 @@ updates, the PRESENT S-box and the SHAKE256 schedule. The
 questions. Earlier designs belong in Git history, not parallel source trees.
 
 The current checkpoint includes encryption/decryption, a fixed 28-round public
-API, key erasure, independent intermediate-state KATs, and bounded structural
-analysis. Python is used only for independent tests/research; the library has
+API, key erasure, independent intermediate-state KATs, and bounded structural,
+differential, rotational and integral analysis through eight-round prefixes.
+Python is used only for independent tests/research; the library has
 no runtime dependencies beyond C11. Reduced-round entry points are test-only.
 
 ## Build and verify
@@ -24,7 +25,7 @@ On Linux, use a C11 compiler, Make, and Python 3.10+ (standard library only).
 ```sh
 make all             # build/libinterlock.a
 make check           # C KAT/negative checks plus independent Python comparison
-make research        # bounded analysis; build/analysis.json
+make research        # 9 bounded experiments; build/summary.json and individual reports
 make sanitize        # standalone C tests with ASan and UBSan
 ```
 
@@ -45,7 +46,13 @@ errors leave output unchanged. Input/output may overlap; output/context may
 not. Invalid init arguments erase a non-NULL context. Callers guarantee valid
 object extents and must not race context mutation against block operations.
 
-The research record includes a proven one-round distinguisher and the isolated
-FS subkey-exposure limitation. Four-round screening and functional checks do
-not establish full-round security. Big-endian/32-bit targets, timing behavior,
+The research record includes proven one-to-three-round distinguishers, the
+isolated FS subkey-exposure limitation, and a strong measured local FM bias.
+The coherent evidence bundle records 8,251,624 block-oracle evaluations;
+component evaluations are counted separately. `make research` rejects mixed
+source/binary fingerprints, incomplete reports and inconsistent query ledgers.
+CI retains the report bundle for seven days; reports are not committed.
+
+Four-to-eight-round marginal screening and functional checks do not establish
+full-round security. Big-endian/32-bit targets, timing behavior,
 complete attack bounds and independent cryptanalysis remain unverified.

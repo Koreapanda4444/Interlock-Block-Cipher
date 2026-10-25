@@ -43,15 +43,12 @@ research-check: build/verify.so
 	$(PYTHON) research/differential.py --check
 	$(PYTHON) research/symmetry.py --check
 	$(PYTHON) research/integral.py --check
+	$(PYTHON) research/suite.py --check
 
 check: check-c verify research-check
 
 research: build/verify.so
-	$(PYTHON) research/analyze.py
-	$(PYTHON) research/differential.py
-	$(PYTHON) research/symmetry.py
-	$(PYTHON) research/integral.py
-	$(PYTHON) research/differential.py --extend
+	$(PYTHON) research/suite.py
 
 sanitize:
 	$(MAKE) clean

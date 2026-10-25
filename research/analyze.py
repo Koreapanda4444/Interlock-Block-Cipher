@@ -6,23 +6,24 @@ The unspecified historical four-round experiment cannot be reproduced here.
 
 import argparse
 import ctypes as C
-import hashlib
-import json
 import math
 from pathlib import Path
-import platform
 import random
-import resource
-import subprocess
-import sys
-import time
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tests"))
-import reference as ref
-from verify import Context, U8, array, load_library, require
+from common import ROOT, Context, Session, U8, array, load_library, ref, require
 
 SEED = 0x494E5445524C4F43
+
+
+class CountedLibrary:
+    def __init__(self, session):
+        self.session, self.library = session, load_library()
+
+    def __getattr__(self, name):
+        return getattr(self.library,name)
+
+    def il_test_reduced(self, ctx, out, data, rounds):
+        self.session.reserve(1,rounds,False)
+        return self.library.il_test_reduced(ctx,out,data,rounds)
 
 
 def sbox_properties(lib):
@@ -171,30 +172,16 @@ def main():
     args = parser.parse_args()
     if not 256 <= args.samples <= (1 << 20):
         parser.error("samples must be in [256, 1048576]")
-    start = time.perf_counter()
-    lib = load_library()
+    session = Session(SEED,max_queries=2*args.samples*4*4+2048)
+    lib = CountedLibrary(session)
     rng = random.Random(SEED)
-    paths = ["docs/spec_ko.md", "include/interlock.h", "src/interlock.c",
-             "src/interlock_internal.h", "src/shake256.c", "src/shake256.h", "tests/vectors.h",
-             "tests/reference.py", "tests/verify.py", "tests/bridge.c", "research/analyze.py", "Makefile",
-             "build/verify.so"]
-    hashes = {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in paths}
-    result = {"seed": hex(SEED), "platform": platform.platform(), "python": platform.python_version(),
-              "sha256": hashes, "scope": "component proofs/checks and bounded diagnostic; not full-round security",
-              "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-              "git_worktree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
+    result = {"scope": "component proofs/checks and bounded diagnostic; not full-round security",
               "sbox": sbox_properties(lib), "structure": structural_checks(lib, rng),
               "one_round_distinguisher": one_round_distinguisher(lib),
               "reduced_round_screen": screen(lib, rng, args.samples)}
-    result["wall_seconds"] = time.perf_counter() - start
-    result["peak_rss_kib"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    if platform.system() == "Darwin":
-        result["peak_rss_kib"] /= 1024
     result["screen_storage_bound"] = "O(samples) unique-pair set + O(128) counters per dataset"
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, indent=2) + "\n")
-    print(f"Analysis recorded in {args.output.relative_to(ROOT) if args.output.is_relative_to(ROOT) else args.output}")
-    print(f"seed={SEED:#x}, samples/dataset={args.samples}, wall={result['wall_seconds']:.3f}s")
+    require(session.queries == 2*args.samples*4*4+2048, "base oracle ledger conservation")
+    session.save("analysis",result,args.output)
     print("S-box:", {k: v for k, v in result["sbox"].items() if k not in ("ddt", "lat_walsh")})
     for rounds in range(1, 5):
         rows = [r for r in result["reduced_round_screen"]["rows"] if r["rounds"] == rounds]

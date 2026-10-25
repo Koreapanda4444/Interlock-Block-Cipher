@@ -21,6 +21,14 @@ class BudgetExceeded(RuntimeError):
     pass
 
 
+def fingerprints():
+    paths = [*ROOT.glob("src/*.[ch]"), *ROOT.glob("include/*.h"),
+             *ROOT.glob("tests/*.[ch]"), *ROOT.glob("tests/*.py"),
+             *ROOT.glob("research/*.py"), ROOT / "docs/spec_ko.md", ROOT / "Makefile"]
+    return {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(set(paths))}
+
+
 class Session:
     def __init__(self, seed, max_queries=1 << 24, seconds=120):
         if max_queries < 0 or seconds <= 0:
@@ -31,6 +39,8 @@ class Session:
         self.ledger = {}
 
     def reserve(self, count, rounds, inverse):
+        if type(count) is not int or count < 0 or type(rounds) is not int or not 0 <= rounds <= 28 or type(inverse) is not bool:
+            raise ValueError("invalid query ledger entry")
         if self.queries + count > self.max_queries:
             raise BudgetExceeded("block-query budget exhausted")
         if time.perf_counter() - self.started > self.seconds:
@@ -39,12 +49,8 @@ class Session:
         label = f"{'inverse' if inverse else 'forward'}/{rounds}"
         self.ledger[label] = self.ledger.get(label, 0) + count
 
-    def save(self, name, result):
-        paths = [*ROOT.glob("src/*.[ch]"), *ROOT.glob("include/*.h"),
-                 *ROOT.glob("tests/*.[ch]"), *ROOT.glob("tests/*.py"),
-                 *ROOT.glob("research/*.py"), ROOT / "docs/spec_ko.md", ROOT / "Makefile"]
-        sources = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
-                   for p in sorted(set(paths))}
+    def save(self, name, result, path=None):
+        sources = fingerprints()
         document = {"experiment": name, "seed": hex(self.seed), "platform": platform.platform(),
                     "python": platform.python_version(), "source_sha256": sources,
                     "binary_sha256": hashlib.sha256((ROOT / "build/verify.so").read_bytes()).hexdigest(),
@@ -57,11 +63,12 @@ class Session:
                     "status": "completed", "result": result}
         if platform.system() == "Darwin":
             document["peak_rss_kib"] /= 1024
-        path = ROOT / "build" / f"{name}.json"
-        path.parent.mkdir(exist_ok=True)
+        path = Path(path) if path is not None else ROOT / "build" / f"{name}.json"
+        path.parent.mkdir(parents=True,exist_ok=True)
         path.write_text(json.dumps(document, indent=2) + "\n")
+        label = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
         print(f"{name}: queries={self.queries}, wall={document['wall_seconds']:.3f}s, "
-              f"peak={document['peak_rss_kib']}KiB -> build/{name}.json")
+              f"peak={document['peak_rss_kib']}KiB -> {label}")
         return document
 
 
@@ -74,7 +81,7 @@ class Oracle:
         require(self.lib.interlock_init(C.byref(self.ctx), array(key), 32) == 0, "oracle init")
 
     def blocks(self, data, rounds, inverse=False):
-        if self.closed or not 0 <= rounds <= 28 or len(data) % 16:
+        if self.closed or type(rounds) is not int or not 0 <= rounds <= 28 or len(data) % 16 or type(inverse) is not bool:
             raise ValueError("closed oracle, invalid rounds or block length")
         count = len(data) // 16
         if count > 1 << 17:
@@ -135,6 +142,14 @@ def check():
         else:
             raise AssertionError("query limit must stop before a batch")
     require(limited.queries == 0, "rejected batch must consume no queries")
+    for count,rounds,inverse in ((-1,0,False),(1,-1,False),(1,29,False),(1,1.5,False),(1,1,2)):
+        try:
+            limited.reserve(count,rounds,inverse)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid ledger entries must be rejected")
+    require(limited.queries == 0, "invalid ledger entries must change no counts")
     session.save("oracle", {"prefixes_checked": 29, "blocks_per_prefix": 4,
                             "inverse_model": "inverse of the first r rounds, not the last r rounds",
                             "production_api": "unchanged, fixed 28 rounds"})
