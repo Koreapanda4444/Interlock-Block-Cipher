@@ -43,6 +43,7 @@ research-check: build/verify.so
 	$(PYTHON) research/differential.py --check
 	$(PYTHON) research/symmetry.py --check
 	$(PYTHON) research/integral.py --check
+	$(PYTHON) research/linear.py --check
 	$(PYTHON) research/suite.py --check
 
 check: check-c verify research-check
