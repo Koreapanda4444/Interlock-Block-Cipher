@@ -49,6 +49,7 @@ research-check: build/verify.so
 	$(PYTHON) research/boomerang.py --check
 	$(PYTHON) research/boomerang.py --cipher --check
 	$(PYTHON) research/algebra.py --check
+	$(PYTHON) research/keys.py --check
 	$(PYTHON) research/suite.py --check
 
 check: check-c verify research-check
