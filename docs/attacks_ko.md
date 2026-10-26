@@ -103,3 +103,12 @@ FS/FM 결과를 C 코어와 대조한다. 확률을 독립으로 곱하는 차�
 SAT·UNSAT·UNKNOWN을 구분한다. 기본 C/stdlib 연구와 분리한 선택 의존성은
 `python3 -m pip install -r research/requirements-smt.txt`로 설치하고
 `make smt-check`로 검증한다. CI에서도 별도 job에서 실제 실행한다.
+
+## 전체 연결의 SMT 일치성
+
+순차 갱신·마지막 동시 순열·역갱신을 별도 bit-vector 식으로 연결한다.
+세 KAT 입력에서 1~28라운드의 84개 C prefix 및 각 역변환을 대조한다.
+또한 고정 평문에 대한 전체 28라운드 식의 SAT 해가 C 출력과 같고,
+틀린 출력을 요구하면 UNSAT인지 확인한다. 이 UNSAT는 특정 고정 입력의
+일치성 검사이며 공격이나 전체 보안성 증명이 아니다.
+solver의 논리·버전·제약 지문·제한·실측 시간·UNKNOWN 사유를 기록한다.

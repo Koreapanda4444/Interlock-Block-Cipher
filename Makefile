@@ -60,6 +60,7 @@ research: build/verify.so
 
 smt-check: build/verify.so
 	$(PYTHON) research/smt.py --check
+	$(PYTHON) research/smt.py --traces
 
 sanitize:
 	$(MAKE) clean
