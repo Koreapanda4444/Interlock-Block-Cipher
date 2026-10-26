@@ -268,6 +268,55 @@ def search(quick=False):
     print("SMT reduced search:",[(r['rounds'],r['status']) for r in rows])
 
 
+
+def recover_fm(quick=False):
+    """Infer FM subkeys from externally visible one-round equations only."""
+    session = Session(SEED ^ 0x524543,max_queries=128)
+    rng = random.Random(session.seed)
+    rows = []
+    for case in range(1 if quick else 3):
+        key = rng.randbytes(32)
+        plains = [rng.randbytes(16) for _ in range(5)]
+        with Oracle(session,key) as oracle:
+            outputs = oracle.blocks(b"".join(plains),1)
+            for slot in (1,2):
+                unknown = z3.BitVec(f"recover_fm_{case}_{slot}",32)
+                s = solver()
+                equations = []
+                for i,plain in enumerate(plains):
+                    _,b,c,d = struct.unpack("<4I",plain)
+                    out = struct.unpack("<4I",outputs[16*i:16*i+16])
+                    updated_c,updated_b = ref.rol(out[0],-5),ref.rol(out[3],-27)
+                    equations.append((d,c ^ updated_c) if slot == 1 else (updated_c,b ^ updated_b))
+                # Two discovery pairs; remaining three are held out from the solver.
+                for x,y in equations[:2]:
+                    s.add(fm(word(x),unknown) == word(y))
+                answer = decide(s,1000,300000)
+                row = {"case":case,"slot":slot,"discovery_pairs":2,"heldout_pairs":3,"decision":answer}
+                if answer["status"] == "sat":
+                    candidate = s.model().eval(unknown,model_completion=True).as_long()
+                    lib = oracle.lib
+                    require(all(lib.il_test_fm(x,candidate) == y for x,y in equations[:2]),"FM candidate discovery replay")
+                    row["candidate"] = f"{candidate:08x}"
+                    row["heldout_matches"] = sum(lib.il_test_fm(x,candidate) == y for x,y in equations[2:])
+                    # Ground truth is consulted only after inference and holdout evaluation.
+                    row["matches_evaluator_key"] = candidate == oracle.ctx.round_keys[0][slot]
+                    s.add(unknown != candidate)
+                    row["alternative_candidate"] = decide(s,1000,300000)
+                require(answer["status"] != "unsat","real FM key must satisfy discovery equations")
+                rows.append(row)
+    # Positive control checks symbolic-key wiring without claiming key recovery.
+    s = solver()
+    k = z3.BitVec("recovery_control_key",32)
+    s.add(k == word(0x12345678),fm(word(0xffffffff),k) == word(ref.fm(0xffffffff,0x12345678)))
+    control = decide(s)
+    require(control["status"] == "sat","known-key recovery control")
+    session.save("smt_recovery", {"mode":"smoke" if quick else "full","solver_version":z3.get_full_version(),
+        "rows":rows,"positive_control":control,"oracle_model":"external one-round chosen plaintext/ciphertext pairs",
+        "limits":"SAT is a candidate, uniqueness requires alternative UNSAT; heldout agreement is finite; no SHAKE master-key inversion"})
+    print("SMT FM recovery:",[(r['case'],r['slot'],r['decision']['status']) for r in rows])
+
+
 def components():
     session,lib = Session(SEED),load_library()
     rng = random.Random(SEED)
@@ -296,8 +345,11 @@ if __name__ == "__main__":
     modes.add_argument("--pairs",action="store_true")
     modes.add_argument("--count",action="store_true")
     modes.add_argument("--search",action="store_true")
+    modes.add_argument("--recover",action="store_true")
     args = parser.parse_args()
-    if args.traces:
+    if args.recover:
+        recover_fm(args.check)
+    elif args.traces:
         traces()
     elif args.pairs:
         pair_checks(args.check)
