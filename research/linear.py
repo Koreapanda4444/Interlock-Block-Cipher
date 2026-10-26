@@ -1,11 +1,13 @@
 """Signed linear correlations; isolated FS identities precede cipher experiments."""
 
 import argparse
+import hashlib
+import math
 from fractions import Fraction
 from functools import lru_cache
 import random
 
-from common import Session, load_library, ref, require
+from common import Oracle, Session, load_library, ref, require
 
 SEED = 0x4c494e454152
 
@@ -70,8 +72,56 @@ def components():
     print(f"Linear FS: {checks} exact signed correlations; example correlation={fs_correlation(a,beta,0)}")
 
 
+def cipher(quick=False):
+    session = Session(SEED ^ 0x434950484552,max_queries=1 << 20)
+    rng = random.Random(session.seed)
+    a,b = next((a,b) for a in range(1,16) for b in range(1,16) if abs(walsh(a,b)) == 8)
+    beta = inverse_transpose(b)
+    input_mask = beta | (a << 32)
+    output_mask = ref.rol(beta,13) << 32
+    keys = [bytes(32),b"\xff"*32] if quick else [bytes(32),b"\xff"*32,bytes(range(32)),rng.randbytes(32)]
+    rows = []
+    for ki,key in enumerate(keys):
+        train = rng.randbytes(16*1024)
+        n = 256 if quick else 8192
+        validation = rng.randbytes(16*n)
+        require(set(train[i:i+16] for i in range(0,len(train),16)).isdisjoint(
+                validation[i:i+16] for i in range(0,len(validation),16)), "linear holdout split")
+        with Oracle(session,key) as oracle:
+            def observe(data, rounds):
+                output = oracle.blocks(data,rounds)
+                signed = 0
+                for i in range(0,len(data),16):
+                    p,c = int.from_bytes(data[i:i+16],"little"),int.from_bytes(output[i:i+16],"little")
+                    observed = parity(input_mask & p) ^ parity(output_mask & c)
+                    if rounds == 1:
+                        x = (p >> 32) & ref.MASK
+                        expected = parity(a & x) ^ parity(beta & ref.fs(x,oracle.ctx.round_keys[0][0]))
+                        require(observed == expected, "one-round external linear identity")
+                    signed += -1 if observed else 1
+                return signed/(len(data)//16)
+            training = observe(train,1)
+            phase = 1 if training >= 0 else -1
+            for rounds in (range(1,3) if quick else range(1,9)):
+                correlation = observe(validation,rounds)
+                rows.append({"key_index": ki, "rounds": rounds, "samples": n,
+                    "signed_correlation": correlation, "bias": correlation/2,
+                    "training_correlation": training, "training_phase_aligned_correlation": phase*correlation,
+                    "predicted_one_round_correlation": str(fs_correlation(a,beta,oracle.ctx.round_keys[0][0])),
+                    "validation_sha256": hashlib.sha256(validation).hexdigest()})
+    threshold = math.sqrt(2*math.log(2*len(rows)/0.01)/n)
+    session.save("linear_cipher", {"mode": "smoke" if quick else "full",
+        "model": "fixed input/output masks and same unknown master key; secret schedule used only for ground-truth checks",
+        "input_mask": f"{input_mask:032x}", "output_mask": f"{output_mask:032x}",
+        "keys_hex": [k.hex() for k in keys], "rows": rows,
+        "reference_absolute_correlation_threshold": threshold,
+        "limits": "single-mask correlations only; no optimized linear trail/hull bound"})
+    print("Linear cipher:",[(r["rounds"],round(r["signed_correlation"],4)) for r in rows if r["key_index"]==0])
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check",action="store_true")
-    parser.parse_args()
-    components()
+    parser.add_argument("--cipher",action="store_true")
+    args = parser.parse_args()
+    cipher(args.check) if args.cipher else components()
