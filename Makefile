@@ -45,6 +45,7 @@ research-check: build/verify.so
 	$(PYTHON) research/integral.py --check
 	$(PYTHON) research/linear.py --check
 	$(PYTHON) research/linear.py --cipher --check
+	$(PYTHON) research/boomerang.py --check
 	$(PYTHON) research/suite.py --check
 
 check: check-c verify research-check

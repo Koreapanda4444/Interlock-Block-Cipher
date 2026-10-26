@@ -27,3 +27,13 @@ LAT 절댓값 8인 한 니블 마스크를 사용하면 모든 키에서 절댓�
 실험의 정답 대조에만 실제 키 스케줄을 사용한다.
 `python3 research/linear.py --cipher`는 고정한 동일 마스크를 1~8라운드에서
 측정한다. 2라운드 이상의 수치는 관측이며 선형 hull의 상계가 아니다.
+
+## S-box boomerang 연결표
+
+`research/boomerang.py`는 현재 C의 4비트 치환에 대해 BCT를 전수 계산한다.
+역치환으로 정의한 식과, `(S(x) xor S(y)) = (S(x xor a) xor S(y xor a)) = b`
+를 만족하는 순서쌍을 세는 독립 정의의 256개 항목이 일치해야 한다.
+자명 축·DDT 해의 포함·짝수성도 확인한다.
+[Cid 등](https://eprint.iacr.org/2018/161)의 BCT는 라운드 사이 switch의
+의존성을 다루는 부품 도구이며, 이 표를 단순히 곱해 전체 암호의 확률을
+계산하지 않는다. `python3 research/boomerang.py`로 재현한다.
