@@ -127,6 +127,55 @@ def traces():
     print("SMT round model: 84 C prefix traces and three full-round fixed-input SAT/UNSAT checks agree")
 
 
+def packed(state):
+    return z3.Concat(*reversed(state))
+
+
+def paired(s,initial,keys,rounds,delta,name):
+    other = [x ^ word((delta >> (32*i)) & ref.MASK) for i,x in enumerate(initial)]
+    return prefix(s,initial,keys,rounds,name+"_left"),prefix(s,other,keys,rounds,name+"_right")
+
+
+def replay_pair(session,key,plain,delta,rounds,mask,value):
+    with Oracle(session,key) as oracle:
+        data = plain.to_bytes(16,"little")+(plain ^ delta).to_bytes(16,"little")
+        output = oracle.blocks(data,rounds)
+    actual = int.from_bytes(output[:16],"little") ^ int.from_bytes(output[16:],"little")
+    require(actual & mask == value, "SMT witness rejected by independent C permutation")
+    return {"plaintext":f"{plain:032x}","input_difference":f"{delta:032x}","output_difference":f"{actual:032x}"}
+
+
+def pair_checks(quick=False):
+    session = Session(SEED ^ 0x50414952,max_queries=64)
+    key,delta = bytes(32),1
+    keys = ref.schedule(key)
+    rows = []
+    for rounds in range(3 if quick else 5):
+        s = solver()
+        initial = [z3.BitVec(f"pair_{rounds}_{i}",32) for i in range(4)]
+        s.add(z3.Extract(31,8,initial[0]) == 0,*(x == 0 for x in initial[1:]))
+        left,right = paired(s,initial,keys,rounds,delta,f"pair_model_{rounds}")
+        difference = packed(left[-1]) ^ packed(right[-1])
+        s.add(difference & 1 == 1)
+        formula = s.to_smt2()
+        (ROOT / "build" / f"smt_pair_{rounds}.smt2").write_text(formula)
+        row = decide(s,1500)
+        row.update({"rounds":rounds,"input_domain":"P=(u8,0,0,0)","desired_output_mask":"1","desired_output_value":"1"})
+        if row["status"] == "sat":
+            m = s.model()
+            plain = sum(m.eval(x,model_completion=True).as_long() << (32*i) for i,x in enumerate(initial))
+            require(plain < 256, "SMT domain restriction")
+            row["witness"] = replay_pair(session,key,plain,delta,rounds,1,1)
+        if rounds == 0:
+            require(row["status"] == "sat", "identity positive pair control")
+        if rounds == 1:
+            require(row["status"] == "unsat", "one-round impossible bit control")
+        rows.append(row)
+    session.save("smt_pairs", {"mode":"smoke" if quick else "full","solver_version":z3.get_full_version(),
+        "key_hex":key.hex(),"rows":rows,"limits":"exact bounded-input feasibility; SAT is a witness, not a trail probability; UNKNOWN is unresolved"})
+    print("SMT pairs:",[(r['rounds'],r['status']) for r in rows])
+
+
 def components():
     session,lib = Session(SEED),load_library()
     rng = random.Random(SEED)
@@ -150,6 +199,8 @@ def components():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check",action="store_true")
-    parser.add_argument("--traces",action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--traces",action="store_true")
+    modes.add_argument("--pairs",action="store_true")
     args = parser.parse_args()
-    traces() if args.traces else components()
+    traces() if args.traces else pair_checks(args.check) if args.pairs else components()
