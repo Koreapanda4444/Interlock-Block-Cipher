@@ -5,6 +5,7 @@ FM(nonzero/unknown) deliberately returns top, never an unsupported PRF model.
 """
 
 from dataclasses import dataclass
+import argparse
 from functools import lru_cache
 import random
 
@@ -54,31 +55,45 @@ def fm(word):
     return ZERO if word.may == 0 else TOP
 
 
-def propagate(delta, rounds):
+def propagate(delta, rounds, inverse=False):
     if not 0 < delta < 1 << 128 or not 0 <= rounds <= 28:
         raise ValueError("nonzero 128-bit difference and rounds 0..28 required")
     state = [Word((delta >> (32*i)) & ref.MASK, (delta >> (32*i)) & ref.MASK) for i in range(4)]
     for _ in range(rounds):
         a, b, c, d = state
-        a = a ^ fs(b)
-        c = c ^ fm(d)
-        b = b ^ fm(c)
-        d = d ^ fs(a)
-        state = [c.rotate(5), a.rotate(13), d.rotate(21), b.rotate(27)]
+        if inverse:
+            a,b,c,d = b.rotate(-13),d.rotate(-27),a.rotate(-5),c.rotate(-21)
+            d = d ^ fs(a)
+            b = b ^ fm(c)
+            c = c ^ fm(d)
+            a = a ^ fs(b)
+            state = [a,b,c,d]
+        else:
+            a = a ^ fs(b)
+            c = c ^ fm(d)
+            b = b ^ fm(c)
+            d = d ^ fs(a)
+            state = [c.rotate(5), a.rotate(13), d.rotate(21), b.rotate(27)]
     value = sum(w.must << (32*i) for i, w in enumerate(state))
     mask = sum(((~w.may | w.must) & ref.MASK) << (32*i) for i, w in enumerate(state))
     return mask, value
 
 
-def analyze():
-    session = Session(0x535550504f5254, max_queries=1 << 17)
+def analyze(inverse=False):
+    session = Session(0x535550504f5254 ^ (0x494e56 if inverse else 0), max_queries=1 << 18)
     rng = random.Random(session.seed)
     rows = []
     for bit in range(128):
-        for rounds in range(1, 5):
-            mask, value = propagate(1 << bit, rounds)
+        for rounds in range(1, 9 if inverse else 5):
+            mask, value = propagate(1 << bit, rounds,inverse)
             require(value & ~mask == 0, "must bits contained in fixed mask")
+            impossible = value ^ (mask & -mask) if mask else None
+            if impossible == 0:
+                impossible |= 1 << ((mask & -mask).bit_length() % 128)
+            if mask:
+                require(impossible & mask != value, "constructed impossible output difference")
             rows.append({"input_bit": bit, "rounds": rounds, "fixed_bits": mask.bit_count(),
+                         "example_impossible_difference": None if impossible is None else f"{impossible:032x}",
                          "mask_hex": f"{mask:032x}", "value_hex": f"{value:032x}",
                          "ideal_acceptance_upper_bound": f"2^{128-mask.bit_count()}/(2^128-1)"})
     keys = [bytes(32), b"\xff"*32, bytes(range(32)), rng.randbytes(32)]
@@ -89,17 +104,17 @@ def analyze():
                 pivot = delta.bit_length() - 1
                 plains = [rng.getrandbits(128) & ~(1 << pivot) for _ in range(16)]
                 data = b"".join(x.to_bytes(16, "little") + (x ^ delta).to_bytes(16, "little") for x in plains)
-                result = oracle.blocks(data, row["rounds"])
+                result = oracle.blocks(data, row["rounds"],inverse)
                 for i in range(0, len(result), 32):
                     diff = int.from_bytes(result[i:i+16], "little") ^ int.from_bytes(result[i+16:i+32], "little")
                     require(diff & int(row["mask_hex"], 16) == int(row["value_hex"], 16),
                             "sound support contradicted by current C oracle")
-    document = session.save("support", {
+    document = session.save("support_inverse" if inverse else "support", {
         "scope": "same-key differential support, all input values and keys; conservative bit projection",
         "fm_model": "zero difference stays zero; every other input difference allows all outputs",
-        "rows": rows, "c_pair_checks": len(keys)*len(rows)*16, "key_hex": [k.hex() for k in keys],
+        "inverse": inverse, "rows": rows, "c_pair_checks": len(keys)*len(rows)*16, "key_hex": [k.hex() for k in keys],
         "limits": "not a trail probability model; unknown does not mean attainable; no key recovery"})
-    for r in range(1, 5):
+    for r in range(1, 9 if inverse else 5):
         subset = [row for row in rows if row["rounds"] == r]
         zero = subset[0]
         print(f"support rounds={r}: fixed bits min/max={min(x['fixed_bits'] for x in subset)}/"
@@ -109,4 +124,7 @@ def analyze():
 
 
 if __name__ == "__main__":
-    analyze()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--inverse",action="store_true")
+    args = parser.parse_args()
+    analyze(args.inverse)

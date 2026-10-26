@@ -38,6 +38,7 @@ verify: build/verify.so
 research-check: build/verify.so
 	$(PYTHON) research/common.py
 	$(PYTHON) research/support.py
+	$(PYTHON) research/support.py --inverse
 	$(PYTHON) research/components.py
 	$(PYTHON) research/addition.py
 	$(PYTHON) research/differential.py --check
