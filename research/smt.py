@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+from fractions import Fraction
 import random
 import struct
 import time
@@ -176,6 +177,47 @@ def pair_checks(quick=False):
     print("SMT pairs:",[(r['rounds'],r['status']) for r in rows])
 
 
+def projected_counts(quick=False):
+    session,lib = Session(SEED ^ 0x434f554e54),load_library()
+    dimension = 4 if quick else 8
+    rows = []
+    for key in ([0] if quick else [0,0xffffffff,0x12345678]):
+        for bit in ([31] if quick else [0,31]):
+            s = solver()
+            u = z3.BitVec(f"count_u_{key}_{bit}",dimension)
+            x = z3.ZeroExt(32-dimension,u) << 16
+            delta = 1 << (16+min(5,dimension-1))
+            difference = fm(x,word(key)) ^ fm(x ^ word(delta),word(key))
+            s.add(z3.Extract(bit,bit,difference) == 1)
+            expected = {v for v in range(1 << dimension)
+                        if ((lib.il_test_fm(v << 16,key) ^ lib.il_test_fm((v << 16) ^ delta,key)) >> bit) & 1}
+            seen = set()
+            checks = 0
+            while True:
+                answer = decide(s,1000)
+                checks += 1
+                if answer["status"] != "sat":
+                    break
+                value = s.model().eval(u,model_completion=True).as_long()
+                require(value in expected and value not in seen, "projected model false positive/duplicate")
+                seen.add(value)
+                s.add(u != value)
+            complete = answer["status"] == "unsat"
+            if complete:
+                require(seen == expected, "projected model false negatives")
+            if quick:
+                require(complete, "small-domain model counting must complete")
+            rows.append({"key":f"{key:08x}","dimension":dimension,"offset":16,"delta":f"{delta:08x}",
+                "output_bit":bit,"models":sorted(seen),"enumeration_complete":complete,
+                "model_count_lower":len(seen),"model_count_upper":len(seen) if complete else 1 << dimension,
+                "exact_c_count":len(expected),"exact_model_probability":str(Fraction(len(seen),1 << dimension)) if complete else None,
+                "solver_checks":checks,"terminal":answer})
+    session.save("smt_counts", {"mode":"smoke" if quick else "full","solver_version":z3.get_full_version(),
+        "rows":rows,"component_evaluations":2*(1 << dimension)*len(rows),
+        "limits":"exact only on the enumerated affine input cube; auxiliary assignments are not counted as plaintexts"})
+    print("SMT projected counts:",[(r['key'],r['output_bit'],r['model_count_lower'],r['enumeration_complete']) for r in rows])
+
+
 def components():
     session,lib = Session(SEED),load_library()
     rng = random.Random(SEED)
@@ -202,5 +244,13 @@ if __name__ == "__main__":
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--traces",action="store_true")
     modes.add_argument("--pairs",action="store_true")
+    modes.add_argument("--count",action="store_true")
     args = parser.parse_args()
-    traces() if args.traces else pair_checks(args.check) if args.pairs else components()
+    if args.traces:
+        traces()
+    elif args.pairs:
+        pair_checks(args.check)
+    elif args.count:
+        projected_counts(args.check)
+    else:
+        components()

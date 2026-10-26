@@ -62,6 +62,7 @@ smt-check: build/verify.so
 	$(PYTHON) research/smt.py --check
 	$(PYTHON) research/smt.py --traces
 	$(PYTHON) research/smt.py --pairs --check
+	$(PYTHON) research/smt.py --count --check
 
 sanitize:
 	$(MAKE) clean
