@@ -317,6 +317,41 @@ def recover_fm(quick=False):
     print("SMT FM recovery:",[(r['case'],r['slot'],r['decision']['status']) for r in rows])
 
 
+
+def full_round_search(quick=False):
+    """Known-key low-weight output feasibility, with explicit finite solver limits."""
+    session = Session(SEED ^ 0x46554c4c,max_queries=512)
+    key = bytes(32)
+    keys = ref.schedule(key)
+    rows = []
+    for rounds in ([28] if quick else [12,20,28]):
+        for delta in ([1] if quick else [1,1 << 127]):
+            s = solver()
+            initial = [z3.BitVec(f"full_{rounds}_{delta}_{i}",32) for i in range(4)]
+            left,right = paired(s,initial,keys,rounds,delta,f"full_model_{rounds}_{delta}")
+            difference = packed(left[-1]) ^ packed(right[-1])
+            weight = sum((z3.ZeroExt(7,z3.Extract(i,i,difference)) for i in range(128)),z3.BitVecVal(0,8))
+            s.add(z3.ULE(weight,8))
+            formula_path = ROOT / "build" / f"smt_full_{rounds}_{delta}.smt2"
+            formula_path.write_text(s.to_smt2())
+            row = decide(s,1000,300000)
+            row.update({"rounds":rounds,"input_difference":f"{delta:032x}","max_output_weight":8,
+                        "input_domain_bits":128,"formula_file":formula_path.name})
+            if row["status"] == "sat":
+                model = s.model()
+                plain = sum(model.eval(x,model_completion=True).as_long() << (32*i) for i,x in enumerate(initial))
+                row["trajectory"] = replay_trajectory(session,key,plain,delta,left,right,model)
+                actual = int(row["trajectory"][-1],16)
+                require(0 < actual.bit_count() <= 8,"full-round low-weight witness C replay")
+                row["plaintext"] = f"{plain:032x}"
+                row["output_weight"] = actual.bit_count()
+            rows.append(row)
+    session.save("smt_full", {"mode":"smoke" if quick else "full","solver_version":z3.get_full_version(),
+        "master_key_hex":key.hex(),"rows":rows,
+        "limits":"fixed known-key feasibility only; no optimized trail probability or hull; UNKNOWN is unresolved; UNSAT would concern only the stated key/difference/weight"})
+    print("SMT full-round limits:",[(r['rounds'],r['input_difference'],r['status']) for r in rows])
+
+
 def components():
     session,lib = Session(SEED),load_library()
     rng = random.Random(SEED)
@@ -346,8 +381,11 @@ if __name__ == "__main__":
     modes.add_argument("--count",action="store_true")
     modes.add_argument("--search",action="store_true")
     modes.add_argument("--recover",action="store_true")
+    modes.add_argument("--full",action="store_true")
     args = parser.parse_args()
-    if args.recover:
+    if args.full:
+        full_round_search(args.check)
+    elif args.recover:
         recover_fm(args.check)
     elif args.traces:
         traces()
