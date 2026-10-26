@@ -89,7 +89,7 @@ def main():
         "key_risks": {"max_held_out_local_fm_bit_bias": max(r["max_abs_bit_bias"] for r in fm["fm_validation"]),
                       "full_round_security": "unverified", "release_approved": False},
         "scope_limits": ["finite fixed-key marginal screens are not trail/hull bounds",
-                         "no whole-cipher SAT/SMT/MILP or master-key recovery result",
+                         "no full-round attack or master-key recovery result",
                          "boomerang, MITM, linear hulls and broad related-key classes remain open"]}
     session.save("summary",summary)
     print(f"Evidence bundle complete: {len(records)} experiments, {session.queries} block queries; security unverified")

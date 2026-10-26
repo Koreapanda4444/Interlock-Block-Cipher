@@ -20,7 +20,7 @@ no runtime dependencies beyond C11. Reduced-round entry points are test-only.
 
 ## Build and verify
 
-On Linux, use a C11 compiler, Make, and Python 3.10+ (standard library only).
+On Linux, use a C11 compiler, Make, and Python 3.10+ (standard library for the default checks).
 
 ```sh
 make all             # build/libinterlock.a
@@ -32,6 +32,21 @@ make sanitize        # standalone C tests with ASan and UBSan
 Clean before changing compiler/flags. `make sanitize` cleans automatically;
 clean again before loading the ordinary Python test bridge. Instrumented C
 tests run as executables, without loading ASan into Python.
+
+Optional exact SMT research uses the pinned Z3 package:
+
+```sh
+python3 -m pip install -r research/requirements-smt.txt
+make smt-check smt-research
+```
+
+The seven-experiment SMT bundle checks model consistency, projected counts,
+external one-round FM subkey inference and known-key feasibility through 28
+rounds. All six FM inference queries and six 12/20/28-round low-weight queries
+were unresolved under their finite budgets; this is not a security result.
+See the [attack models](docs/attacks_ko.md) and
+[phase/task checkpoint](docs/research_status_ko.md) for scope and open work.
+SMT JSON and formulas are retained in CI artifacts for seven days.
 
 ## API
 

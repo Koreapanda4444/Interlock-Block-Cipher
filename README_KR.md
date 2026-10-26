@@ -16,7 +16,7 @@ C11 구현 한 개와 [규범 명세](docs/spec_ko.md) 한 개만 유지한다.
 ## 빌드와 검증
 
 Linux의 C11 컴파일러·Make·Python 3.10 이상이 필요하다.
-Python은 시험·연구에만 사용하며 외부 Python 패키지는 필요 없다.
+Python은 시험·연구에만 사용하며 기본 검증은 표준 라이브러리만 사용한다.
 정적 라이브러리는 Python이나 외부 암호 라이브러리에 의존하지 않는다.
 
 ```sh
@@ -30,6 +30,19 @@ make sanitize        # ASan·UBSan으로 독립 C 시험
 `make sanitize`는 자동 정리 후 C 실행 파일을 검사한다.
 이후 Python 검증으로 돌아갈 때도 정리하여 일반 시험용 공유 라이브러리를
 다시 빌드한다. 분석 JSON은 CI에서도 실행별 artifact로 7일간 제공한다.
+
+정확한 SMT 연구에는 선택적 Z3 의존성을 설치한다.
+
+```sh
+python3 -m pip install -r research/requirements-smt.txt
+make smt-check smt-research
+```
+
+SMT 7개 실험은 모델 일치성·투영 계수·외부 FM 서브키 추론·28라운드까지의
+고정 키 실행 가능성을 검사한다. FM 복원 6질의와 12/20/28라운드의 낮은 출력
+차분 무게 6질의는 모두 계산 한도 내 미해결이었다. 보안성 합격이 아니다.
+[추가 공격 기록](docs/attacks_ko.md)과 [페이즈·작업 진행표](docs/research_status_ko.md)에서
+조건과 남은 과제를 확인할 수 있다. JSON·SMT2는 CI artifact로 7일간 제공한다.
 
 ## API 계약
 
