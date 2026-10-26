@@ -13,6 +13,7 @@ except ImportError:
     raise SystemExit("Install the optional solver: python3 -m pip install -r research/requirements-smt.txt")
 
 from common import ROOT, Oracle, Session, load_library, ref, require
+from support import propagate
 
 SEED = 0x534d54
 
@@ -218,6 +219,55 @@ def projected_counts(quick=False):
     print("SMT projected counts:",[(r['key'],r['output_bit'],r['model_count_lower'],r['enumeration_complete']) for r in rows])
 
 
+def replay_trajectory(session,key,plain,delta,left,right,model):
+    trajectory = []
+    with Oracle(session,key) as oracle:
+        for rounds,(lstate,rstate) in enumerate(zip(left,right)):
+            output = oracle.blocks(plain.to_bytes(16,"little")+(plain ^ delta).to_bytes(16,"little"),rounds)
+            actual_left,actual_right = struct.unpack("<4I",output[:16]),struct.unpack("<4I",output[16:])
+            require(list(actual_left) == [model.eval(x,model_completion=True).as_long() for x in lstate], "left trajectory C replay")
+            require(list(actual_right) == [model.eval(x,model_completion=True).as_long() for x in rstate], "right trajectory C replay")
+            trajectory.append(f"{int.from_bytes(output[:16],'little') ^ int.from_bytes(output[16:],'little'):032x}")
+    return trajectory
+
+
+def search(quick=False):
+    session = Session(SEED ^ 0x534541524348,max_queries=256)
+    key,delta = bytes(32),1
+    keys = ref.schedule(key)
+    rows = []
+    for rounds in range(1,4 if quick else 9):
+        s = solver()
+        initial = [z3.BitVec(f"search_{rounds}_{i}",32) for i in range(4)]
+        left,right = paired(s,initial,keys,rounds,delta,f"search_model_{rounds}")
+        difference = packed(left[-1]) ^ packed(right[-1])
+        mask,value = propagate(delta,rounds)
+        if mask:
+            selected = mask & -mask
+            target = (value ^ selected) & selected
+            kind = "counterexample_to_proven_support"
+        else:
+            selected,target,kind = 1,1,"feasible_output_bit"
+        s.add(difference & selected == target)
+        (ROOT / "build" / f"smt_search_{rounds}.smt2").write_text(s.to_smt2())
+        row = decide(s,1000,300000)
+        row.update({"rounds":rounds,"kind":kind,"input_domain_bits":128,
+                    "output_mask":f"{selected:032x}","output_value":f"{target:032x}"})
+        if row["status"] == "sat":
+            model = s.model()
+            plain = sum(model.eval(x,model_completion=True).as_long() << (32*i) for i,x in enumerate(initial))
+            row["witness"] = replay_pair(session,key,plain,delta,rounds,selected,target)
+            row["trajectory"] = replay_trajectory(session,key,plain,delta,left,right,model)
+            require(not mask, "sound support contradicted by a real C trajectory")
+        if rounds == 1:
+            require(row["status"] == "unsat", "one-round negative control")
+        rows.append(row)
+    session.save("smt_search", {"mode":"smoke" if quick else "full","solver_version":z3.get_full_version(),
+        "master_key_hex":key.hex(),"input_difference":"1","rows":rows,
+        "limits":"known fixed-key feasibility and example trajectories; no differential probability, optimized characteristic or hull bound"})
+    print("SMT reduced search:",[(r['rounds'],r['status']) for r in rows])
+
+
 def components():
     session,lib = Session(SEED),load_library()
     rng = random.Random(SEED)
@@ -245,6 +295,7 @@ if __name__ == "__main__":
     modes.add_argument("--traces",action="store_true")
     modes.add_argument("--pairs",action="store_true")
     modes.add_argument("--count",action="store_true")
+    modes.add_argument("--search",action="store_true")
     args = parser.parse_args()
     if args.traces:
         traces()
@@ -252,5 +303,7 @@ if __name__ == "__main__":
         pair_checks(args.check)
     elif args.count:
         projected_counts(args.check)
+    elif args.search:
+        search(args.check)
     else:
         components()
