@@ -3,6 +3,19 @@ on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
+  smt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: python3 -m pip install -r research/requirements-smt.txt
+      - run: make smt-check
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: interlock-smt
+          path: build/smt_*.json
+          if-no-files-found: error
+          retention-days: 7
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10

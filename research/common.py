@@ -24,7 +24,8 @@ class BudgetExceeded(RuntimeError):
 def fingerprints():
     paths = [*ROOT.glob("src/*.[ch]"), *ROOT.glob("include/*.h"),
              *ROOT.glob("tests/*.[ch]"), *ROOT.glob("tests/*.py"),
-             *ROOT.glob("research/*.py"), ROOT / "docs/spec_ko.md", ROOT / "Makefile"]
+             *ROOT.glob("research/*.py"), *ROOT.glob("research/requirements*.txt"),
+             ROOT / "docs/spec_ko.md", ROOT / "Makefile"]
     return {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(set(paths))}
 

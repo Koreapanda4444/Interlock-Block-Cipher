@@ -92,3 +92,14 @@ FS의 최대 차수 3은 별도 부품 정리와 대조한다.
 실험 정답 비교에만 컨텍스트를 읽고 복원 함수에는 전달하지 않는다.
 이는 전체 256비트 마스터키 또는 FM 서브키 복구, 2라운드 이상 공격이 아니다.
 `python3 research/recovery.py`로 재현한다.
+
+## carry를 생략하지 않는 SMT 부품 모델
+
+`research/smt.py`는 C의 비트평면 구현과 별도로 4비트 표를 사용하는
+정확한 32비트 QF_BV 식을 작성한다. 덧셈은 bit-vector mod 2^32이고,
+회전·AND·S-box·L의 순서를 그대로 반영한다. 경계값과 고정 seed 입력에서
+FS/FM 결과를 C 코어와 대조한다. 확률을 독립으로 곱하는 차분 근사가 아니다.
+[Z3 저자 문서](https://z3prover.github.io/papers/programmingz3.html)를 기준으로
+SAT·UNSAT·UNKNOWN을 구분한다. 기본 C/stdlib 연구와 분리한 선택 의존성은
+`python3 -m pip install -r research/requirements-smt.txt`로 설치하고
+`make smt-check`로 검증한다. CI에서도 별도 job에서 실제 실행한다.
