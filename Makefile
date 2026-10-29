@@ -47,6 +47,7 @@ research-check: build/verify.so
 	$(PYTHON) research/integral.py --check
 	$(PYTHON) research/linear.py --check
 	$(PYTHON) research/linear.py --cipher --check
+	$(PYTHON) research/linear.py --cube --check
 	$(PYTHON) research/boomerang.py --check
 	$(PYTHON) research/boomerang.py --cipher --check
 	$(PYTHON) research/algebra.py --check

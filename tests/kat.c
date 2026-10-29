@@ -259,6 +259,29 @@ int main(void)
     CHECK(blocks() == 0);
     CHECK(buffer_contract() == 0);
     CHECK(research_bridge() == 0);
+    uint8_t truth[16];
+    int32_t spectrum[16];
+    for (unsigned phase = 0; phase < 2; ++phase) {
+        for (unsigned mask = 0; mask < 16; ++mask) {
+            for (unsigned x = 0; x < 16; ++x) {
+                unsigned v = x & mask, parity = phase;
+                while (v != 0) { parity ^= v & 1U; v >>= 1; }
+                truth[x] = (uint8_t)parity;
+            }
+            CHECK(il_test_walsh(spectrum,truth,16) == 0);
+            for (unsigned i = 0; i < 16; ++i)
+                CHECK(spectrum[i] == (i == mask ? (phase != 0 ? -16 : 16) : 0));
+        }
+    }
+    for (unsigned i = 0; i < 16; ++i) spectrum[i] = 123;
+    truth[15] = 2;
+    CHECK(il_test_walsh(spectrum,truth,16) == -1);
+    CHECK(il_test_walsh(spectrum,truth,0) == -1);
+    CHECK(il_test_walsh(spectrum,truth,3) == -1);
+    CHECK(il_test_walsh(spectrum,truth,65537) == -1);
+    CHECK(il_test_walsh(NULL,truth,16) == -1);
+    CHECK(il_test_walsh(spectrum,NULL,16) == -1);
+    for (unsigned i = 0; i < 16; ++i) CHECK(spectrum[i] == 123);
     puts("C checks passed: primitives, SHAKE/schedule/block KAT, 4480 round trips, buffer contract");
     return 0;
 }

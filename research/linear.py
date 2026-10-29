@@ -1,5 +1,6 @@
 """Signed linear correlations; isolated FS identities precede cipher experiments."""
 
+import ctypes as C
 import argparse
 import hashlib
 import math
@@ -119,9 +120,60 @@ def cipher(quick=False):
     print("Linear cipher:",[(r["rounds"],round(r["signed_correlation"],4)) for r in rows if r["key_index"]==0])
 
 
+
+def cube(quick=False):
+    session = Session(SEED ^ 0x43554245,max_queries=1 << 20)
+    rng,lib = random.Random(session.seed),load_library()
+    dimension = 6 if quick else 12
+    count = 1 << dimension
+    keys = [bytes(32)] if quick else [bytes(32),rng.randbytes(32)]
+    rows = []
+    # Cross-check every coefficient of a small nonlinear Boolean signal directly.
+    signal = bytes(rng.getrandbits(1) for _ in range(64))
+    spectrum = (C.c_int32*64)()
+    require(lib.il_test_walsh(spectrum,(C.c_uint8*64).from_buffer_copy(signal),64) == 0,"Walsh bridge")
+    require(list(spectrum) == [sum((-1 if signal[x] ^ parity(mask & x) else 1)
+                                for x in range(64)) for mask in range(64)],"independent signed Walsh coefficients")
+    for ki,key in enumerate(keys):
+        for word_index in ([0] if quick else [0,3]):
+            shift = 32*word_index
+            free_mask = (count-1) << shift
+            base = rng.getrandbits(128) & ~free_mask
+            data = b"".join((base | (x << shift)).to_bytes(16,"little") for x in range(count))
+            with Oracle(session,key) as oracle:
+                for rounds in ([1,2] if quick else [1,2,4,8]):
+                    output = oracle.blocks(data,rounds)
+                    coordinates = []
+                    for bit in (0,31,32,63,64,95,96,127):
+                        truth = bytes((output[16*x+bit//8] >> (bit%8)) & 1 for x in range(count))
+                        coefficients = (C.c_int32*count)()
+                        require(lib.il_test_walsh(coefficients,(C.c_uint8*count).from_buffer_copy(truth),count) == 0,"Boolean cube spectrum")
+                        require(sum(v*v for v in coefficients) == count*count,"exact Walsh Parseval energy")
+                        require(coefficients[0] == count-2*sum(truth),"constant-mask signed balance")
+                        best = max(range(1,count),key=lambda mask:abs(coefficients[mask]))
+                        coordinates.append({"output_bit":bit,"best_nonzero_cube_mask":hex(best),
+                            "signed_walsh":coefficients[best],"signed_correlation":str(Fraction(coefficients[best],count)),
+                            "constant_mask_correlation":str(Fraction(coefficients[0],count)),
+                            "parseval_energy":count*count})
+                    rows.append({"key_index":ki,"rounds":rounds,"word_index":word_index,
+                        "dimension":dimension,"base_plaintext":f"{base:032x}","enumerated_inputs":count,
+                        "output_sha256":hashlib.sha256(output).hexdigest(),"coordinates":coordinates})
+    session.save("linear_cube", {"mode":"smoke" if quick else "full","keys_hex":[key.hex() for key in keys],
+        "rows":rows,"model":"exact restriction to an affine plaintext cube under a fixed key",
+        "limits":"best mask is selected on the exhaustively enumerated cube; no independent global holdout, whole-input correlation, trail decomposition or hull bound"})
+    print(f"Exact cube spectra: {len(rows)} datasets, {len(rows)*8} coordinates, {count} input masks each")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check",action="store_true")
-    parser.add_argument("--cipher",action="store_true")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--cipher",action="store_true")
+    modes.add_argument("--cube",action="store_true")
     args = parser.parse_args()
-    cipher(args.check) if args.cipher else components()
+    if args.cube:
+        cube(args.check)
+    elif args.cipher:
+        cipher(args.check)
+    else:
+        components()

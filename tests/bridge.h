@@ -13,4 +13,6 @@ int il_test_batch(const interlock_ctx *ctx, uint8_t *out, const uint8_t *in,
                   size_t count, unsigned rounds, int inverse);
 int il_test_components(uint32_t *out, const uint32_t *in, size_t count, uint32_t key, int mixed);
 int il_test_diff_counts(uint64_t *counts, const uint8_t *pairs, size_t count, unsigned block_bytes);
+int il_test_walsh(int32_t *out, const uint8_t *truth, size_t count);
+
 #endif

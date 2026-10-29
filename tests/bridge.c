@@ -65,3 +65,22 @@ int il_test_diff_counts(uint64_t *counts, const uint8_t *pairs, size_t count, un
     }
     return 0;
 }
+
+/* Signed Walsh spectrum of a Boolean truth table, limited to 16 variables. */
+int il_test_walsh(int32_t *out, const uint8_t *truth, size_t count)
+{
+    if (out == NULL || truth == NULL || count == 0 || count > 65536 ||
+        (count & (count-1)) != 0) return -1;
+    for (size_t i = 0; i < count; ++i) if (truth[i] > 1) return -1;
+    for (size_t i = 0; i < count; ++i) out[i] = truth[i] != 0 ? -1 : 1;
+    for (size_t step = 1; step < count; step *= 2) {
+        for (size_t block = 0; block < count; block += 2*step) {
+            for (size_t i = 0; i < step; ++i) {
+                int32_t a = out[block+i], b = out[block+i+step];
+                out[block+i] = a+b;
+                out[block+i+step] = a-b;
+            }
+        }
+    }
+    return 0;
+}
