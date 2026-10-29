@@ -8,7 +8,7 @@ LDFLAGS =
 WARN = -std=c11 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
 INCLUDES = -Iinclude -Isrc
 
-.PHONY: all check check-c verify research research-check smt-check smt-research ct-check sanitize clean
+.PHONY: all check check-c verify research research-check smt-check smt-research ct-check fuzz-check fuzz sanitize clean
 all: build/libinterlock.a
 
 SOURCES = src/interlock.c src/shake256.c
@@ -78,9 +78,22 @@ build/ctcheck: tests/ctcheck.c $(SOURCES) $(HEADERS) | build
 ct-check: build/ctcheck
 	$(PYTHON) tests/ctcheck.py
 
+build/fuzz-check: tests/fuzz.c $(SOURCES) $(HEADERS) | build
+	$(CC) $(CPPFLAGS) $(INCLUDES) $(CFLAGS) $(WARN) -DIL_FUZZ_STANDALONE tests/fuzz.c $(SOURCES) $(LDFLAGS) -o $@
+
+fuzz-check: build/fuzz-check
+	$(RUNNER) ./build/fuzz-check
+
+build/fuzz: tests/fuzz.c $(SOURCES) $(HEADERS) | build
+	$(CC) $(CPPFLAGS) $(INCLUDES) $(CFLAGS) $(WARN) -fsanitize=fuzzer,address,undefined tests/fuzz.c $(SOURCES) $(LDFLAGS) -o $@
+
+fuzz: build/fuzz
+	mkdir -p build/fuzz-corpus
+	./build/fuzz -seed=12345 -max_len=64 -runs=50000 -artifact_prefix=build/ build/fuzz-corpus
+
 sanitize:
 	$(MAKE) clean
-	$(MAKE) check-c CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" LDFLAGS="-fsanitize=address,undefined"
+	$(MAKE) check-c fuzz-check CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" LDFLAGS="-fsanitize=address,undefined"
 
 clean:
 	rm -rf build
