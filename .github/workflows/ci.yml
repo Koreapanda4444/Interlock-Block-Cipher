@@ -112,3 +112,21 @@ jobs:
             build/oom-*
           if-no-files-found: ignore
           retention-days: 7
+  measurement:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: make measure CC=${{ matrix.cc }} CFLAGS=-O2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: interlock-measurement-${{ matrix.cc }}
+          path: |
+            build/benchmark.json
+            build/measure/*.su
+          if-no-files-found: error
+          retention-days: 7

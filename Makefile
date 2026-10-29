@@ -8,7 +8,7 @@ LDFLAGS =
 WARN = -std=c11 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
 INCLUDES = -Iinclude -Isrc
 
-.PHONY: all check check-c verify research research-check smt-check smt-research ct-check fuzz-check fuzz sanitize clean
+.PHONY: all check check-c verify research research-check smt-check smt-research ct-check fuzz-check fuzz measure sanitize clean
 all: build/libinterlock.a
 
 SOURCES = src/interlock.c src/shake256.c
@@ -90,6 +90,24 @@ build/fuzz: tests/fuzz.c $(SOURCES) $(HEADERS) | build
 fuzz: build/fuzz
 	mkdir -p build/fuzz-corpus
 	./build/fuzz -seed=12345 -max_len=64 -runs=50000 -artifact_prefix=build/ build/fuzz-corpus
+
+build/measure:
+	mkdir -p $@
+
+build/measure/%.o: src/%.c $(HEADERS) | build/measure
+	$(CC) $(CPPFLAGS) $(INCLUDES) $(CFLAGS) $(WARN) -fstack-usage -c $< -o $@
+
+build/measure/benchmark.o: research/benchmark.c include/interlock.h | build/measure
+	$(CC) $(CPPFLAGS) $(INCLUDES) $(CFLAGS) $(WARN) -fstack-usage -c $< -o $@
+
+build/measure/libinterlock.a: build/measure/interlock.o build/measure/shake256.o
+	$(AR) rcs $@ $^
+
+build/measure/benchmark: build/measure/benchmark.o build/measure/libinterlock.a
+	$(CC) $(CFLAGS) $^ $(LDFLAGS) -o $@
+
+measure: check-c build/measure/benchmark
+	BENCH_CC="$(CC)" BENCH_CFLAGS="$(CFLAGS)" BENCH_CPPFLAGS="$(CPPFLAGS)" BENCH_LDFLAGS="$(LDFLAGS)" $(PYTHON) research/benchmark.py
 
 sanitize:
 	$(MAKE) clean
