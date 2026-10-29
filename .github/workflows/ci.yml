@@ -77,3 +77,21 @@ jobs:
           make all check-c CC=${{ matrix.cc }} LDFLAGS=-static
           RUNNER=${{ matrix.runner }}
           CPPFLAGS="-DIL_EXPECT_SIZE_T_BITS=${{ matrix.bits }} -DIL_EXPECT_BIG_ENDIAN=${{ matrix.big_endian }}"
+  secret-taint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: sudo apt-get update && sudo apt-get install -y valgrind libc6-dbg
+      - run: make ct-check CC=${{ matrix.cc }} CFLAGS=-O2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: interlock-secret-taint-${{ matrix.cc }}
+          path: build/ctcheck*
+          if-no-files-found: error
+          retention-days: 7

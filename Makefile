@@ -8,7 +8,7 @@ LDFLAGS =
 WARN = -std=c11 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
 INCLUDES = -Iinclude -Isrc
 
-.PHONY: all check check-c verify research research-check smt-check smt-research sanitize clean
+.PHONY: all check check-c verify research research-check smt-check smt-research ct-check sanitize clean
 all: build/libinterlock.a
 
 SOURCES = src/interlock.c src/shake256.c
@@ -71,6 +71,12 @@ smt-check: build/verify.so
 
 smt-research: build/verify.so
 	$(PYTHON) research/smt_suite.py
+
+build/ctcheck: tests/ctcheck.c $(SOURCES) $(HEADERS) | build
+	$(CC) $(CPPFLAGS) $(INCLUDES) $(CFLAGS) $(WARN) tests/ctcheck.c $(SOURCES) $(LDFLAGS) -o $@
+
+ct-check: build/ctcheck
+	$(PYTHON) tests/ctcheck.py
 
 sanitize:
 	$(MAKE) clean
