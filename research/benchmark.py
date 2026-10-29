@@ -15,6 +15,14 @@ BUILD = ROOT / "build/measure"
 cc = shlex.split(os.environ.get("BENCH_CC", "cc"))
 summary = ROOT / "build/benchmark.json"
 summary.unlink(missing_ok=True)
+source_paths = [*ROOT.glob("src/*.[ch]"),*ROOT.glob("include/*.h"),
+                ROOT / "research/benchmark.c", ROOT / "research/benchmark.py", ROOT / "Makefile"]
+
+def identity():
+    paths = [*source_paths, BUILD / "benchmark", BUILD / "libinterlock.a"]
+    return {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
+
+before = identity()
 result = subprocess.run([str(BUILD / "benchmark")], check=True, cwd=ROOT,
                         capture_output=True, text=True, timeout=60)
 raw = json.loads(result.stdout)
@@ -42,8 +50,6 @@ for line in size_output.splitlines()[1:]:
         raise AssertionError("unexpected size output")
     objects.append({"object": " ".join(fields[5:]),"text_and_rodata_bytes": int(fields[0]),
                     "data_bytes": int(fields[1]),"bss_bytes": int(fields[2])})
-source_paths = [*ROOT.glob("src/*.[ch]"),*ROOT.glob("include/*.h"),
-                ROOT / "research/benchmark.c", ROOT / "research/benchmark.py", ROOT / "Makefile"]
 cpu = platform.processor()
 info = Path("/proc/cpuinfo")
 if info.exists():
@@ -59,6 +65,8 @@ document = {"compiler_command": cc,"compiler_version": subprocess.check_output([
     "measurements": raw,"object_sizes": objects,"stack_frames": frames,
     "max_reported_function_frame_bytes": max(row["bytes"] for row in frames),
     "limits": "serial dependent-block API timings with 128 warmups and 7 repeats; process scheduling/frequency uncontrolled; compiler frames are not total call-chain stack; no security-normalized AES comparison"}
+if identity() != before:
+    raise AssertionError("benchmark source or binary changed during measurement")
 summary.write_text(json.dumps(document,indent=2)+"\n")
 for row in raw["rows"]:
     print(f"{row['operation']}: median={row['median_ns']:.1f} ns, stdev={row['stdev_ns']:.1f} ns")

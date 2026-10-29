@@ -123,11 +123,14 @@ def prefix(s,initial,keys,rounds,name,inverse=False):
 def decide(s,timeout_ms=1000,rlimit=0):
     s.set(timeout=timeout_ms,rlimit=rlimit)
     formula = s.to_smt2()
+    digest = hashlib.sha256(formula.encode()).hexdigest()
+    formula_file = f"smt_formula_{digest}.smt2"
+    (ROOT / "build" / formula_file).write_text(formula)
     started = time.perf_counter()
     status = s.check()
     return {"status":str(status),"reason_unknown":s.reason_unknown() if status == z3.unknown else None,
             "timeout_ms":timeout_ms,"rlimit":rlimit,"check_seconds":time.perf_counter()-started,
-            "formula_sha256":hashlib.sha256(formula.encode()).hexdigest(),
+            "formula_sha256":digest,"formula_file":formula_file,"solver_seed":SEED,"logic":"QF_BV",
             "assertions":len(s.assertions()),"statistics":str(s.statistics())}
 
 
@@ -195,8 +198,6 @@ def pair_checks(quick=False):
         left,right = paired(s,initial,keys,rounds,delta,f"pair_model_{rounds}")
         difference = packed(left[-1]) ^ packed(right[-1])
         s.add(difference & 1 == 1)
-        formula = s.to_smt2()
-        (ROOT / "build" / f"smt_pair_{rounds}.smt2").write_text(formula)
         row = decide(s,1500)
         row.update({"rounds":rounds,"input_domain":"P=(u8,0,0,0)","desired_output_mask":"1","desired_output_value":"1"})
         if row["status"] == "sat":
@@ -285,7 +286,6 @@ def search(quick=False):
         else:
             selected,target,kind = 1,1,"feasible_output_bit"
         s.add(difference & selected == target)
-        (ROOT / "build" / f"smt_search_{rounds}.smt2").write_text(s.to_smt2())
         row = decide(s,1000,300000)
         row.update({"rounds":rounds,"kind":kind,"input_domain_bits":128,
                     "output_mask":f"{selected:032x}","output_value":f"{target:032x}"})
@@ -386,11 +386,9 @@ def full_round_search(quick=False):
             difference = packed(left[-1]) ^ packed(right[-1])
             weight = sum((z3.ZeroExt(7,z3.Extract(i,i,difference)) for i in range(128)),z3.BitVecVal(0,8))
             s.add(z3.ULE(weight,8))
-            formula_path = ROOT / "build" / f"smt_full_{rounds}_{delta}.smt2"
-            formula_path.write_text(s.to_smt2())
             row = decide(s,1000,300000)
             row.update({"rounds":rounds,"input_difference":f"{delta:032x}","max_output_weight":8,
-                        "input_domain_bits":128,"formula_file":formula_path.name})
+                        "input_domain_bits":128})
             if row["status"] == "sat":
                 model = s.model()
                 plain = sum(model.eval(x,model_completion=True).as_long() << (32*i) for i,x in enumerate(initial))

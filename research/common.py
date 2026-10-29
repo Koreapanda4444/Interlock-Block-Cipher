@@ -10,6 +10,7 @@ import resource
 import subprocess
 import sys
 import time
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
@@ -24,7 +25,7 @@ class BudgetExceeded(RuntimeError):
 def fingerprints():
     paths = [*ROOT.glob("src/*.[ch]"), *ROOT.glob("include/*.h"),
              *ROOT.glob("tests/*.[ch]"), *ROOT.glob("tests/*.py"),
-             *ROOT.glob("research/*.py"), *ROOT.glob("research/requirements*.txt"),
+             *ROOT.glob("research/*.py"), *ROOT.glob("research/*.[ch]"), *ROOT.glob("research/requirements*.txt"),
              ROOT / "docs/spec_ko.md", ROOT / "Makefile"]
     return {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(set(paths))}
@@ -35,6 +36,9 @@ class Session:
         if max_queries < 0 or seconds <= 0:
             raise ValueError("invalid experiment budget")
         self.seed, self.max_queries, self.seconds = seed, max_queries, seconds
+        self.source_identity = fingerprints()
+        self.binary_identity = hashlib.sha256((ROOT / "build/verify.so").read_bytes()).hexdigest()
+        self.git_identity = subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
         self.started = time.perf_counter()
         self.queries = 0
         self.ledger = {}
@@ -52,10 +56,17 @@ class Session:
 
     def save(self, name, result, path=None):
         sources = fingerprints()
+        require(sources == self.source_identity,"sources changed during experiment")
+        binary = hashlib.sha256((ROOT / "build/verify.so").read_bytes()).hexdigest()
+        require(binary == self.binary_identity,"binary changed during experiment")
+        head = subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
+        require(head == self.git_identity,"git head changed during experiment")
+        if time.perf_counter()-self.started > self.seconds:
+            raise BudgetExceeded("cooperative wall-time budget exhausted before report publication")
         document = {"experiment": name, "seed": hex(self.seed), "platform": platform.platform(),
                     "python": platform.python_version(), "source_sha256": sources,
-                    "binary_sha256": hashlib.sha256((ROOT / "build/verify.so").read_bytes()).hexdigest(),
-                    "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+                    "binary_sha256": binary,
+                    "git_head": head,
                     "git_worktree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
                     "wall_seconds": time.perf_counter() - self.started,
                     "peak_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
@@ -151,6 +162,23 @@ def check():
         else:
             raise AssertionError("invalid ledger entries must be rejected")
     require(limited.queries == 0, "invalid ledger entries must change no counts")
+    changed = dict(session.source_identity)
+    changed["research/benchmark.c"] = "0"*64
+    with patch(__name__+".fingerprints",return_value=changed):
+        try:
+            session.save("rejected_changed_source",{})
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("mid-experiment source drift must prevent publication")
+    expired = Session(1,seconds=1)
+    expired.started -= 2
+    try:
+        expired.save("rejected_expired",{})
+    except BudgetExceeded:
+        pass
+    else:
+        raise AssertionError("zero-query expired experiments must not publish")
     session.save("oracle", {"prefixes_checked": 29, "blocks_per_prefix": 4,
                             "inverse_model": "inverse of the first r rounds, not the last r rounds",
                             "production_api": "unchanged, fixed 28 rounds"})

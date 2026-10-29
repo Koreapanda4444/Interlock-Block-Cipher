@@ -4,6 +4,7 @@ import argparse
 import copy
 import hashlib
 import json
+import re
 import subprocess
 import sys
 
@@ -34,6 +35,24 @@ def decisions(value):
     return []
 
 
+
+def formula_records(value):
+    if isinstance(value,dict):
+        if "formula_sha256" in value:
+            digest = value["formula_sha256"]
+            require(isinstance(digest,str) and re.fullmatch(r"[0-9a-f]{64}",digest) is not None,"invalid formula digest")
+            name = value.get("formula_file")
+            require(name == f"smt_formula_{digest}.smt2","formula filename/digest mismatch")
+            path = ROOT / "build" / name
+            require(path.resolve().parent == (ROOT / "build").resolve(),"formula path outside build")
+            require(hashlib.sha256(path.read_bytes()).hexdigest() == digest,"formula/report mismatch")
+            return [{"path":name,"sha256":digest}]
+        return [row for child in value.values() for row in formula_records(child)]
+    if isinstance(value,list):
+        return [row for child in value for row in formula_records(child)]
+    return []
+
+
 def check():
     original = {"formula_sha256": "0"*64, "status": "unknown", "reason_unknown": "resource limit",
                 "timeout_ms": 1000, "rlimit": 300000}
@@ -47,7 +66,15 @@ def check():
             pass
         else:
             raise AssertionError(f"invalid solver evidence accepted: {field}")
-    print("SMT evidence rejects missing limits, unexplained UNKNOWN and security labels")
+    for value in ({"formula_sha256":"bad"},
+                  {"formula_sha256":"0"*64,"formula_file":"../outside.smt2"}):
+        try:
+            formula_records(value)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("invalid formula reference accepted")
+    print("SMT evidence rejects missing limits, unexplained UNKNOWN, invalid formula references and security labels")
 
 
 def main():
@@ -71,14 +98,7 @@ def main():
         for label, value in document["query_ledger"].items():
             direction, rounds = label.split("/")
             session.reserve(value, int(rounds), direction == "inverse")
-        formulas = []
-        for row in result.get("rows", []):
-            if "formula_file" in row:
-                formula_path = ROOT / "build" / row["formula_file"]
-                require(formula_path.parent == ROOT / "build", "formula path outside build")
-                digest = hashlib.sha256(formula_path.read_bytes()).hexdigest()
-                require(digest == row["formula_sha256"], "formula/report mismatch")
-                formulas.append({"path": row["formula_file"], "sha256": digest})
+        formulas = formula_records(result)
         reports.append({"experiment": name, "report_sha256": hashlib.sha256(raw).hexdigest(),
                         "oracle_queries": document["oracle_queries"], "formulas": formulas})
     require(fingerprints() == expected, "sources changed during SMT generation")
