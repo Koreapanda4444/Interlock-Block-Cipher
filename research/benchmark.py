@@ -19,7 +19,7 @@ source_paths = [*ROOT.glob("src/*.[ch]"),*ROOT.glob("include/*.h"),
                 ROOT / "research/benchmark.c", ROOT / "research/benchmark.py", ROOT / "Makefile"]
 
 def identity():
-    paths = [*source_paths, BUILD / "benchmark", BUILD / "libinterlock.a"]
+    paths = [*source_paths, BUILD / "benchmark", BUILD / "libinterlock.a", *sorted(BUILD.glob("*.o")), *sorted(BUILD.glob("*.su"))]
     return {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
 
 before = identity()
@@ -38,7 +38,7 @@ frames = []
 for path in sorted(BUILD.glob("*.su")):
     for line in path.read_text().splitlines():
         name, size, qualifier = line.rsplit("\t",2)
-        frames.append({"function_location": name,"bytes": int(size),"qualifier": qualifier})
+        frames.append({"source_object":path.stem,"function_location": name,"bytes": int(size),"qualifier": qualifier})
 if not frames:
     raise AssertionError("compiler produced no stack-usage records")
 size_tool = shlex.split(os.environ.get("BENCH_SIZE", "size"))
@@ -50,6 +50,19 @@ for line in size_output.splitlines()[1:]:
         raise AssertionError("unexpected size output")
     objects.append({"object": " ".join(fields[5:]),"text_and_rodata_bytes": int(fields[0]),
                     "data_bytes": int(fields[1]),"bss_bytes": int(fields[2])})
+assembly = []
+objdump = shlex.split(os.environ.get("BENCH_OBJDUMP", "objdump"))
+for name in ("interlock","shake256"):
+    object_path = BUILD / f"{name}.o"
+    raw_assembly = subprocess.check_output([*objdump,"-dr",str(object_path)])
+    path = BUILD / f"{name}.asm"
+    path.write_bytes(raw_assembly)
+    assembly.append({"path":str(path.relative_to(ROOT)),"command":[*objdump,"-dr",str(object_path.relative_to(ROOT))],
+        "object_sha256":hashlib.sha256(object_path.read_bytes()).hexdigest(),
+        "disassembly_sha256":hashlib.sha256(raw_assembly).hexdigest()})
+library_frames = [row for row in frames if row["source_object"] in ("interlock","shake256")]
+if not library_frames:
+    raise AssertionError("missing library frame records")
 cpu = platform.processor()
 info = Path("/proc/cpuinfo")
 if info.exists():
@@ -62,7 +75,8 @@ document = {"compiler_command": cc,"compiler_version": subprocess.check_output([
     "source_sha256": {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in source_paths},
     "binary_sha256": hashlib.sha256((BUILD / "benchmark").read_bytes()).hexdigest(),
     "archive_sha256": hashlib.sha256((BUILD / "libinterlock.a").read_bytes()).hexdigest(),
-    "measurements": raw,"object_sizes": objects,"stack_frames": frames,
+    "measurements": raw,"object_sizes": objects,"stack_frames": frames,"code_generation": assembly,
+    "max_library_function_frame_bytes":max(row["bytes"] for row in library_frames),
     "max_reported_function_frame_bytes": max(row["bytes"] for row in frames),
     "limits": "serial dependent-block API timings with 128 warmups and 7 repeats; process scheduling/frequency uncontrolled; compiler frames are not total call-chain stack; no security-normalized AES comparison"}
 if identity() != before:

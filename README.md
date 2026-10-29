@@ -25,8 +25,8 @@ On Linux, use a C11 compiler, Make, and Python 3.10+ (standard library for the d
 ```sh
 make all             # build/libinterlock.a
 make check           # C KAT/negative checks plus independent Python comparison
-make research        # 9 bounded experiments; build/summary.json and individual reports
-make sanitize        # standalone C tests with ASan and UBSan
+make research        # 19 full experiments; build/summary.json and individual reports
+make sanitize        # C KAT and deterministic API fuzzing with ASan/UBSan
 ```
 
 Clean before changing compiler/flags. `make sanitize` cleans automatically;
@@ -49,6 +49,21 @@ See the [attack models](docs/attacks_ko.md) and
 [phase/task checkpoint](docs/research_status_ko.md) for scope and open work.
 SMT JSON and formulas are retained in CI artifacts for seven days.
 
+Optional implementation checks and measurement:
+
+```sh
+make fuzz-check       # 8,192 deterministic API cases, ordinary C11 compiler
+make fuzz CC=clang    # 50,000 libFuzzer mutations, ASan/UBSan
+make ct-check         # Valgrind + headers; deliberate branch/address leak controls
+make measure          # 7 repeats, key setup/block costs, object size/stack/disassembly
+```
+
+CI also executes the C KAT/buffer checks on ARM32 little-endian and s390x
+big-endian under QEMU. GCC/Clang `-O2` secret-taint audits cover sampled key
+expansion, encryption/decryption and erasure paths. This is not a constant-time
+proof. Measurement reports include compiler/options, code fingerprints and
+library-object disassembly for independent inspection.
+
 ## API
 
 Include `interlock.h` and link `build/libinterlock.a`. Zero-initialize an
@@ -62,13 +77,16 @@ errors leave output unchanged. Input/output may overlap; output/context may
 not. Invalid init arguments erase a non-NULL context. Callers guarantee valid
 object extents and must not race context mutation against block operations.
 
-The research record includes proven one-to-three-round distinguishers, the
-isolated FS subkey-exposure limitation, and a strong measured local FM bias.
-The coherent evidence bundle records 8,251,624 block-oracle evaluations;
-component evaluations are counted separately. `make research` rejects mixed
-source/binary fingerprints, incomplete reports and inconsistent query ledgers.
-CI retains the report bundle for seven days; reports are not committed.
+The research record includes one-to-three-round differential distinguishers,
+a proven all-key nontrivial one/two-round boomerang distinguisher, observed
+complete first-round subkey recovery, and a strong local FM bias. These are
+reduced-round results, not attacks against the public 28-round API.
 
-Four-to-eight-round marginal screening and functional checks do not establish
-full-round security. Big-endian/32-bit targets, timing behavior,
-complete attack bounds and independent cryptanalysis remain unverified.
+The ordinary evidence bundle contains 19 full experiments and 10,550,568
+block-oracle evaluations; component evaluations and the optional SMT bundle
+are separate. `make research` rejects mixed source/binary identities, smoke
+reports and inconsistent query ledgers. CI retains reports for seven days.
+
+Full-round attack complexity, security margin, novelty, timing behavior across
+platforms and external independent cryptanalysis remain unverified. The
+[current research status](docs/research_status_ko.md) states the remaining work.

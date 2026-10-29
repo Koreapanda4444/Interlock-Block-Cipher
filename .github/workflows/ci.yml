@@ -128,5 +128,6 @@ jobs:
           path: |
             build/benchmark.json
             build/measure/*.su
+            build/measure/*.asm
           if-no-files-found: error
           retention-days: 7
