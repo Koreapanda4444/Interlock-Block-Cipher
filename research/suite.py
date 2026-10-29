@@ -28,6 +28,7 @@ COMMANDS = (
     ("keys", ["research/keys.py"]),
     ("recovery", ["research/recovery.py"]),
     ("linear_cube", ["research/linear.py", "--cube"]),
+    ("boomerang_structure", ["research/boomerang.py", "--structure"]),
 )
 
 
