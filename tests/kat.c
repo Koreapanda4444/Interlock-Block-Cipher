@@ -242,6 +242,17 @@ static int research_bridge(void)
 
 int main(void)
 {
+    const uint32_t endian_probe = UINT32_C(0x01020304);
+    uint8_t first_byte;
+    memcpy(&first_byte,&endian_probe,1);
+#ifdef IL_EXPECT_SIZE_T_BITS
+    _Static_assert(sizeof(size_t)*CHAR_BIT == IL_EXPECT_SIZE_T_BITS, "wrong cross-target pointer width");
+#endif
+#ifdef IL_EXPECT_BIG_ENDIAN
+    CHECK((first_byte == 1) == IL_EXPECT_BIG_ENDIAN);
+#endif
+    printf("Execution target: %zu-bit size_t, %s-endian\n",sizeof(size_t)*CHAR_BIT,
+           first_byte == 1 ? "big" : "little");
     CHECK(primitives() == 0);
     CHECK(shake() == 0);
     CHECK(schedule() == 0);

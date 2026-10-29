@@ -51,3 +51,29 @@ jobs:
           path: build/*.json
           if-no-files-found: error
           retention-days: 7
+  cross:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: armhf
+            cc: arm-linux-gnueabihf-gcc
+            packages: gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
+            runner: qemu-arm
+            bits: 32
+            big_endian: 0
+          - target: s390x
+            cc: s390x-linux-gnu-gcc
+            packages: gcc-s390x-linux-gnu libc6-dev-s390x-cross
+            runner: qemu-s390x
+            bits: 64
+            big_endian: 1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: sudo apt-get update && sudo apt-get install -y qemu-user ${{ matrix.packages }}
+      - run: >-
+          make all check-c CC=${{ matrix.cc }} LDFLAGS=-static
+          RUNNER=${{ matrix.runner }}
+          CPPFLAGS="-DIL_EXPECT_SIZE_T_BITS=${{ matrix.bits }} -DIL_EXPECT_BIG_ENDIAN=${{ matrix.big_endian }}"

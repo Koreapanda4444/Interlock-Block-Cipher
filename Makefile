@@ -3,6 +3,7 @@ AR = ar
 PYTHON = python3
 CFLAGS = -O2
 CPPFLAGS =
+RUNNER =
 LDFLAGS =
 WARN = -std=c11 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
 INCLUDES = -Iinclude -Isrc
@@ -26,7 +27,7 @@ build/kat: tests/kat.c tests/vectors.h tests/bridge.c tests/bridge.h $(SOURCES) 
 	$(CC) $(CPPFLAGS) $(INCLUDES) $(CFLAGS) $(WARN) tests/kat.c tests/bridge.c $(SOURCES) $(LDFLAGS) -o $@
 
 check-c: build/kat
-	./build/kat
+	$(RUNNER) ./build/kat
 
 build/verify.so: tests/bridge.c tests/bridge.h $(SOURCES) $(HEADERS) | build
 	$(CC) $(CPPFLAGS) $(INCLUDES) $(CFLAGS) $(WARN) -fPIC -shared tests/bridge.c $(SOURCES) $(LDFLAGS) -o $@
