@@ -22,7 +22,7 @@ def word(x):
     return z3.BitVecVal(x,32)
 
 
-def substitution(x):
+def substitution_table(x):
     result = []
     for nibble in range(8):
         v = z3.Extract(4*nibble+3,4*nibble,x)
@@ -31,6 +31,37 @@ def substitution(x):
             out = z3.If(v == i,z3.BitVecVal(ref.SBOX[i],4),out)
         result.append(out)
     return z3.Concat(*reversed(result))
+
+
+
+def anf_coefficients():
+    coefficients = list(ref.SBOX)
+    for bit in range(4):
+        for mask in range(16):
+            if mask & (1 << bit):
+                coefficients[mask] ^= coefficients[mask ^ (1 << bit)]
+    return coefficients
+
+
+ANF = anf_coefficients()
+
+
+def substitution(x):
+    """Derive a parallel bit-plane ANF from the independent normative table."""
+    mask = word(0x11111111)
+    planes = [z3.LShR(x,bit) & mask for bit in range(4)]
+    terms = [mask]
+    for monomial in range(1,16):
+        bit = monomial & -monomial
+        terms.append(terms[monomial ^ bit] & planes[bit.bit_length()-1])
+    outputs = []
+    for bit in range(4):
+        plane = word(0)
+        for monomial,coefficient in enumerate(ANF):
+            if (coefficient >> bit) & 1:
+                plane = plane ^ terms[monomial]
+        outputs.append(plane << bit)
+    return outputs[0] | outputs[1] | outputs[2] | outputs[3]
 
 
 def linear(x):
@@ -354,6 +385,11 @@ def full_round_search(quick=False):
 
 def components():
     session,lib = Session(SEED),load_library()
+    symbolic = z3.BitVec("sbox_encoding_equivalence",32)
+    equivalence_solver = solver()
+    equivalence_solver.add(substitution(symbolic) != substitution_table(symbolic))
+    equivalence = decide(equivalence_solver,5000)
+    require(equivalence["status"] == "unsat", "ANF/table equivalence for every 32-bit input")
     rng = random.Random(SEED)
     pairs = [(x,k) for x in (0,1,0xffffffff,0x80000000,0x55555555) for k in (0,1,0xffffffff)]
     pairs += [(rng.getrandbits(32),rng.getrandbits(32)) for _ in range(32)]
@@ -366,8 +402,9 @@ def components():
     s.add(x+word(0) != x)
     require(s.check() == z3.unsat, "QF_BV solver sanity")
     session.save("smt_components", {"solver_version":z3.get_full_version(),"logic":"QF_BV",
+        "substitution_encoding_equivalence":equivalence,"anf_coefficients":ANF,
         "component_pairs":len(pairs),"component_evaluations":2*len(pairs),
-        "representation":"exact 32-bit addition, rotations, AND, table-defined nibble substitution",
+        "representation":"exact 32-bit addition, rotations, AND, table-derived bit-plane ANF substitution",
         "limits":"component validation only; not a differential probability or full-round proof"})
     print(f"SMT components: Z3 {z3.get_version_string()}, exact C comparisons={2*len(pairs)}")
 
