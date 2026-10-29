@@ -53,6 +53,32 @@ def formula_records(value):
     return []
 
 
+
+COVERAGE = {
+    "smt_traces": (("case",), [(i,) for i in range(3)]),
+    "smt_pairs": (("rounds",), [(i,) for i in range(5)]),
+    "smt_counts": (("key","output_bit"), [(k,b) for k in ("00000000","ffffffff","12345678") for b in (0,31)]),
+    "smt_search": (("rounds",), [(i,) for i in range(1,9)]),
+    "smt_recovery": (("case","slot"), [(c,s) for c in range(3) for s in (1,2)]),
+    "smt_full": (("rounds","input_difference"), [(r,f"{d:032x}") for r in (12,20,28) for d in (1,1 << 127)]),
+}
+
+
+def validate_coverage(name,result):
+    if name == "smt_components":
+        require(result.get("component_pairs",0) > 0,"missing component checks")
+        require(result.get("substitution_encoding_equivalence",{}).get("status") == "unsat","missing encoding proof")
+        return
+    fields, expected = COVERAGE[name]
+    rows = result.get("rows",[])
+    actual = [tuple(row.get(f) for f in fields) for row in rows]
+    require(len(actual) == len(expected) and set(actual) == set(expected),f"incomplete/duplicate experiment coverage: {name}")
+    if name == "smt_counts":
+        for row in rows:
+            require(len(row["model_decisions"]) == len(row["models"]),"missing enumeration decisions")
+            require(row["solver_checks"] == len(row["model_decisions"])+1,"incomplete enumeration ledger")
+
+
 def check():
     original = {"formula_sha256": "0"*64, "status": "unknown", "reason_unknown": "resource limit",
                 "timeout_ms": 1000, "rlimit": 300000}
@@ -74,7 +100,17 @@ def check():
             pass
         else:
             raise AssertionError("invalid formula reference accepted")
-    print("SMT evidence rejects missing limits, unexplained UNKNOWN, invalid formula references and security labels")
+    fields,expected = COVERAGE["smt_traces"]
+    rows = [dict(zip(fields,values)) for values in expected]
+    validate_coverage("smt_traces",{"rows":rows})
+    for altered in (rows[:-1],rows[:-1]+[rows[0]],[]):
+        try:
+            validate_coverage("smt_traces",{"rows":altered})
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("missing or duplicate scope accepted")
+    print("SMT evidence rejects invalid limits, decisions, formulas and incomplete/duplicate coverage")
 
 
 def main():
@@ -91,6 +127,7 @@ def main():
         document = json.loads(raw)
         validate(document, name, expected, binary)
         result = document["result"]
+        validate_coverage(name,result)
         versions.add(result["solver_version"])
         require(len(versions) == 1, "mixed solver versions")
         for status in decisions(result):

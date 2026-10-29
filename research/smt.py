@@ -231,11 +231,13 @@ def projected_counts(quick=False):
                         if ((lib.il_test_fm(v << 16,key) ^ lib.il_test_fm((v << 16) ^ delta,key)) >> bit) & 1}
             seen = set()
             checks = 0
+            model_decisions = []
             while True:
                 answer = decide(s,1000)
                 checks += 1
                 if answer["status"] != "sat":
                     break
+                model_decisions.append(answer)
                 value = s.model().eval(u,model_completion=True).as_long()
                 require(value in expected and value not in seen, "projected model false positive/duplicate")
                 seen.add(value)
@@ -249,7 +251,7 @@ def projected_counts(quick=False):
                 "output_bit":bit,"models":sorted(seen),"enumeration_complete":complete,
                 "model_count_lower":len(seen),"model_count_upper":len(seen) if complete else 1 << dimension,
                 "exact_c_count":len(expected),"exact_model_probability":str(Fraction(len(seen),1 << dimension)) if complete else None,
-                "solver_checks":checks,"terminal":answer})
+                "solver_checks":checks,"model_decisions":model_decisions,"terminal":answer})
     session.save("smt_counts", {"mode":"smoke" if quick else "full","solver_version":z3.get_full_version(),
         "rows":rows,"component_evaluations":2*(1 << dimension)*len(rows),
         "limits":"exact only on the enumerated affine input cube; auxiliary assignments are not counted as plaintexts"})

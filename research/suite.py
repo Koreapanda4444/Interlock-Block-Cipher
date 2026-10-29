@@ -19,6 +19,15 @@ COMMANDS = (
     ("symmetry", ["research/symmetry.py"]),
     ("integral", ["research/integral.py"]),
     ("extension", ["research/differential.py", "--extend"]),
+    ("support_inverse", ["research/support.py", "--inverse"]),
+    ("linear_components", ["research/linear.py"]),
+    ("linear_cipher", ["research/linear.py", "--cipher"]),
+    ("boomerang_components", ["research/boomerang.py"]),
+    ("boomerang_cipher", ["research/boomerang.py", "--cipher"]),
+    ("algebra", ["research/algebra.py"]),
+    ("keys", ["research/keys.py"]),
+    ("recovery", ["research/recovery.py"]),
+    ("linear_cube", ["research/linear.py", "--cube"]),
 )
 
 
@@ -90,7 +99,7 @@ def main():
                       "full_round_security": "unverified", "release_approved": False},
         "scope_limits": ["finite fixed-key marginal screens are not trail/hull bounds",
                          "no full-round attack or master-key recovery result",
-                         "boomerang, MITM, linear hulls and broad related-key classes remain open"]}
+                         "finite linear/boomerang screens do not bound hulls; MITM and broad related-key classes remain open"]}
     session.save("summary",summary)
     print(f"Evidence bundle complete: {len(records)} experiments, {session.queries} block queries; security unverified")
 
