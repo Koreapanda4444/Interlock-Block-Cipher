@@ -42,8 +42,9 @@ make smt-check smt-research
 
 The seven-experiment SMT bundle checks model consistency, projected counts,
 external one-round FM subkey inference and known-key feasibility through 28
-rounds. All six FM inference queries and six 12/20/28-round low-weight queries
-were unresolved under their finite budgets; this is not a security result.
+rounds. Inverse-output preprocessing recovered all first-round subkeys in three tested
+keys, with held-out blocks and uniqueness checks. This remains a one-round
+attack; six 12/20/28-round low-weight queries remain unresolved.
 See the [attack models](docs/attacks_ko.md) and
 [phase/task checkpoint](docs/research_status_ko.md) for scope and open work.
 SMT JSON and formulas are retained in CI artifacts for seven days.

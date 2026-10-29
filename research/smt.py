@@ -14,6 +14,7 @@ except ImportError:
 
 from common import ROOT, Oracle, Session, load_library, ref, require
 from support import propagate
+from recovery import inverse_unkeyed_fs, recover as recover_fs
 
 SEED = 0x534d54
 
@@ -72,12 +73,16 @@ def fs(x,k):
     return linear(substitution(x ^ k))
 
 
-def fm(x,k):
+def fm_inner(x,k):
     y = substitution(x ^ k)
     u = y + z3.RotateLeft(k,9)
     v = z3.RotateLeft(y ^ k,7)
     w = z3.RotateLeft(u+v,11) ^ z3.RotateLeft(y & z3.RotateLeft(k,3),19)
-    return linear(substitution(w ^ z3.RotateLeft(k,13)))
+    return w ^ z3.RotateLeft(k,13)
+
+
+def fm(x,k):
+    return linear(substitution(fm_inner(x,k)))
 
 
 def solver(timeout_ms=1000,rlimit=0):
@@ -304,12 +309,14 @@ def recover_fm(quick=False):
     """Infer FM subkeys from externally visible one-round equations only."""
     session = Session(SEED ^ 0x524543,max_queries=128)
     rng = random.Random(session.seed)
-    rows = []
+    rows, key_sets = [], []
     for case in range(1 if quick else 3):
         key = rng.randbytes(32)
         plains = [rng.randbytes(16) for _ in range(5)]
         with Oracle(session,key) as oracle:
             outputs = oracle.blocks(b"".join(plains),1)
+            k0,k3 = recover_fs(plains[0],outputs[:16])
+            recovered = {0:k0,3:k3}
             for slot in (1,2):
                 unknown = z3.BitVec(f"recover_fm_{case}_{slot}",32)
                 s = solver()
@@ -321,8 +328,8 @@ def recover_fm(quick=False):
                     equations.append((d,c ^ updated_c) if slot == 1 else (updated_c,b ^ updated_b))
                 # Two discovery pairs; remaining three are held out from the solver.
                 for x,y in equations[:2]:
-                    s.add(fm(word(x),unknown) == word(y))
-                answer = decide(s,1000,300000)
+                    s.add(fm_inner(word(x),unknown) == word(inverse_unkeyed_fs(y)))
+                answer = decide(s,3000,0)
                 row = {"case":case,"slot":slot,"discovery_pairs":2,"heldout_pairs":3,"decision":answer}
                 if answer["status"] == "sat":
                     candidate = s.model().eval(unknown,model_completion=True).as_long()
@@ -333,9 +340,24 @@ def recover_fm(quick=False):
                     # Ground truth is consulted only after inference and holdout evaluation.
                     row["matches_evaluator_key"] = candidate == oracle.ctx.round_keys[0][slot]
                     s.add(unknown != candidate)
-                    row["alternative_candidate"] = decide(s,1000,300000)
+                    row["alternative_candidate"] = decide(s,3000,0)
+                    if row["heldout_matches"] == 3:
+                        recovered[slot] = candidate
                 require(answer["status"] != "unsat","real FM key must satisfy discovery equations")
                 rows.append(row)
+            complete = len(recovered) == 4
+            entry = {"case":case,"recovered_bits":32*len(recovered),"complete_round_key":complete}
+            if complete:
+                subkeys = tuple(recovered[i] for i in range(4))
+                entry["subkeys"] = [f"{k:08x}" for k in subkeys]
+                entry["heldout_full_blocks"] = 3
+                for i in range(2,5):
+                    predicted = struct.pack("<4I",*ref.forward(struct.unpack("<4I",plains[i]),subkeys))
+                    require(predicted == outputs[16*i:16*i+16],"recovered full round-key holdout")
+                require(subkeys == tuple(oracle.ctx.round_keys[0]),"full recovered subkeys evaluator")
+            if quick:
+                require(complete,"fixed external one-round recovery regression")
+            key_sets.append(entry)
     # Positive control checks symbolic-key wiring without claiming key recovery.
     s = solver()
     k = z3.BitVec("recovery_control_key",32)
@@ -343,7 +365,8 @@ def recover_fm(quick=False):
     control = decide(s)
     require(control["status"] == "sat","known-key recovery control")
     session.save("smt_recovery", {"mode":"smoke" if quick else "full","solver_version":z3.get_full_version(),
-        "rows":rows,"positive_control":control,"oracle_model":"external one-round chosen plaintext/ciphertext pairs",
+        "rows":rows,"round_key_sets":key_sets,"positive_control":control,
+        "encoding":"inverse outer L/S; exact FM inner equations with two discovery pairs","oracle_model":"external one-round chosen plaintext/ciphertext pairs",
         "limits":"SAT is a candidate, uniqueness requires alternative UNSAT; heldout agreement is finite; no SHAKE master-key inversion"})
     print("SMT FM recovery:",[(r['case'],r['slot'],r['decision']['status']) for r in rows])
 
